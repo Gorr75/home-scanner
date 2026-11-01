@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 import UIKit
 import RoomScanCore
 
+@MainActor
 enum TexturePaints {
     static func forHome(_ home: Home, store: HomeStore) -> [SurfacePaint] {
         paints(homeId: home.id, plans: home.rooms.map(\.floorPlan), store: store)

@@ -22,8 +22,7 @@ enum ScanFrameImage {
     static func pose(from frame: ARFrame) -> ScanCameraPose {
         let transform = frame.camera.transform
         var columns: [Double] = []
-        for index in 0..<4 {
-            let column = transform.columns[index]
+        for column in [transform.columns.0, transform.columns.1, transform.columns.2, transform.columns.3] {
             columns.append(Double(column.x))
             columns.append(Double(column.y))
             columns.append(Double(column.z))

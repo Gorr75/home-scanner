@@ -1,4 +1,5 @@
 import Foundation
+import RoomScanCore
 import Security
 
 enum KeychainStoreError: Error, Equatable {
