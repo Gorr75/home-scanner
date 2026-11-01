@@ -91,33 +91,49 @@ public struct ScanPackage: Equatable, Sendable {
 public enum HomeExport {
     /// The home folder uses the home id. Each room folder uses the room id.
     /// Pass USDZ bytes keyed by the relative path stored on the room or structure.
-    public static func packages(for home: Home, usdzFiles: [String: Data] = [:]) throws -> [ScanPackage] {
+    public static func packages(
+        for home: Home,
+        usdzFiles: [String: Data] = [:],
+        textures: [AppliedTexture] = []
+    ) throws -> [ScanPackage] {
         var packages: [ScanPackage] = []
-        packages.append(try homePackage(home, usdzFiles: usdzFiles))
+        packages.append(try homePackage(home, usdzFiles: usdzFiles, textures: textures))
         for room in home.rooms {
-            packages.append(try roomPackage(home, room: room, usdzFiles: usdzFiles))
+            let ids = surfaceIDs(in: room.floorPlan)
+            let roomTextures = textures.filter { ids.contains($0.surfaceId) }
+            packages.append(try roomPackage(home, room: room, usdzFiles: usdzFiles, textures: roomTextures))
         }
         return packages
     }
 
-    public static func zip(for home: Home, usdzFiles: [String: Data] = [:]) throws -> Data {
-        let entries = try packages(for: home, usdzFiles: usdzFiles).flatMap(\.zipEntries)
+    public static func zip(
+        for home: Home,
+        usdzFiles: [String: Data] = [:],
+        textures: [AppliedTexture] = []
+    ) throws -> Data {
+        let entries = try packages(for: home, usdzFiles: usdzFiles, textures: textures).flatMap(\.zipEntries)
         return StoredZip.archive(files: entries)
     }
 
-    private static func homePackage(_ home: Home, usdzFiles: [String: Data]) throws -> ScanPackage {
+    private static func homePackage(_ home: Home, usdzFiles: [String: Data], textures: [AppliedTexture]) throws -> ScanPackage {
         let slug = try requireSlug(home.id.uuidString)
-        let glb: Data
-        if let overview = home.structure?.overviewFloorPlan, !overview.isEmpty {
-            glb = FloorPlanGLB.data(for: overview)
-        } else {
-            let frames = FloorPlanLayout.frames(rooms: home.rooms, coordinatesAreUnified: home.coordinatesAreUnified)
-            let layers = home.rooms.map { room in
-                (room.floorPlan, frames.first { $0.roomId == room.id }?.offset ?? .zero)
-            }
-            glb = FloorPlanGLB.data(for: layers)
+        let frames = FloorPlanLayout.frames(rooms: home.rooms, coordinatesAreUnified: home.coordinatesAreUnified)
+        let layers = home.rooms.map { room in
+            (room.floorPlan, frames.first { $0.roomId == room.id }?.offset ?? .zero)
         }
-        let usdz = home.structure?.usdz.flatMap { usdzFiles[$0] }
+        let glb: Data
+        let usdz: Data?
+        if textures.isEmpty, let overview = home.structure?.overviewFloorPlan, !overview.isEmpty {
+            glb = FloorPlanGLB.data(for: overview)
+            usdz = home.structure?.usdz.flatMap { usdzFiles[$0] }
+        } else if textures.isEmpty {
+            glb = FloorPlanGLB.data(for: layers)
+            usdz = home.structure?.usdz.flatMap { usdzFiles[$0] }
+        } else {
+            glb = FloorPlanGLB.data(for: layers, textures: textures)
+            usdz = TexturedUSDZ.data(layers: layers, textures: textures)
+                ?? home.structure?.usdz.flatMap { usdzFiles[$0] }
+        }
         return ScanPackage(
             slug: slug,
             title: home.name,
@@ -127,7 +143,7 @@ public enum HomeExport {
         )
     }
 
-    private static func roomPackage(_ home: Home, room: Room, usdzFiles: [String: Data]) throws -> ScanPackage {
+    private static func roomPackage(_ home: Home, room: Room, usdzFiles: [String: Data], textures: [AppliedTexture]) throws -> ScanPackage {
         let slug = try requireSlug(room.id.uuidString)
         let single = Home(
             id: home.id,
@@ -138,14 +154,26 @@ public enum HomeExport {
             pins: home.pins(in: room.id),
             structure: nil
         )
-        let usdz = room.assets.usdz.flatMap { usdzFiles[$0] }
+        let layers = [(room.floorPlan, Vec3.zero)]
+        let glb = FloorPlanGLB.data(for: room.floorPlan, textures: textures)
+        let usdz: Data?
+        if textures.isEmpty {
+            usdz = room.assets.usdz.flatMap { usdzFiles[$0] }
+        } else {
+            usdz = TexturedUSDZ.data(layers: layers, textures: textures)
+                ?? room.assets.usdz.flatMap { usdzFiles[$0] }
+        }
         return ScanPackage(
             slug: slug,
             title: room.name,
             layoutJSON: try HomeLayoutDocument(home: single).encode(),
-            modelGLB: FloorPlanGLB.data(for: room.floorPlan),
+            modelGLB: glb,
             modelUSDZ: usdz
         )
+    }
+
+    private static func surfaceIDs(in plan: FloorPlan) -> Set<UUID> {
+        Set(plan.walls.map(\.id) + plan.floors.map(\.id))
     }
 
     private static func requireSlug(_ raw: String) throws -> String {

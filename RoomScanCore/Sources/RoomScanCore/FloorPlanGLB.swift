@@ -2,11 +2,11 @@ import Foundation
 
 /// A glTF binary model of a floor plan. Y is up and units are meters, matching the USDZ.
 public enum FloorPlanGLB {
-    public static func data(for plan: FloorPlan, offset: Vec3 = .zero) -> Data {
-        data(for: [(plan, offset)])
+    public static func data(for plan: FloorPlan, offset: Vec3 = .zero, textures: [AppliedTexture] = []) -> Data {
+        data(for: [(plan, offset)], textures: textures)
     }
 
-    public static func data(for layers: [(plan: FloorPlan, offset: Vec3)]) -> Data {
+    public static func data(for layers: [(plan: FloorPlan, offset: Vec3)], textures: [AppliedTexture] = []) -> Data {
         var floors = TriangleMesh()
         var walls = TriangleMesh()
         var objects = TriangleMesh()
@@ -30,8 +30,45 @@ public enum FloorPlanGLB {
                 (walls, [0.93, 0.91, 0.86, 1.0]),
                 (objects, [0.55, 0.46, 0.36, 1.0]),
                 (openings, [0.45, 0.32, 0.22, 1.0])
-            ]
+            ],
+            textured: texturedQuads(layers: layers, textures: textures)
         )
+    }
+
+    private static func texturedQuads(layers: [(plan: FloorPlan, offset: Vec3)], textures: [AppliedTexture]) -> [TexturedQuad] {
+        var quads: [TexturedQuad] = []
+        for texture in textures where texture.corners.count == 4 && !texture.jpeg.isEmpty {
+            for layer in layers {
+                let corners: [Vec3]
+                if let wall = layer.plan.walls.first(where: { $0.id == texture.surfaceId }) {
+                    corners = SurfaceFrame.wallCorners(wall, offset: layer.offset)
+                } else if let floor = layer.plan.floors.first(where: { $0.id == texture.surfaceId }) {
+                    corners = SurfaceFrame.floorCorners(floor, offset: layer.offset)
+                } else {
+                    corners = []
+                }
+                guard corners.count == 4 else { continue }
+                quads.append(TexturedQuad(corners: corners, imageCorners: texture.corners, jpeg: texture.jpeg))
+            }
+        }
+        return quads
+    }
+}
+
+struct TexturedQuad {
+    var positions: [Float]
+    var normals: [Float]
+    var uvs: [Float]
+    var indices: [UInt32]
+    var jpeg: Data
+
+    init(corners: [Vec3], imageCorners: [ImagePoint], jpeg: Data) {
+        let normal = SurfaceFrame.faceNormal(corners)
+        positions = corners.flatMap { [Float($0.x), Float($0.y), Float($0.z)] }
+        normals = corners.flatMap { _ in [Float(normal.x), Float(normal.y), Float(normal.z)] }
+        uvs = imageCorners.flatMap { [Float($0.x), Float(1 - $0.y)] }
+        indices = [0, 1, 2, 0, 2, 3]
+        self.jpeg = jpeg
     }
 }
 
@@ -151,12 +188,14 @@ struct TriangleMesh {
 }
 
 enum GLBEncoder {
-    static func encode(primitives: [(TriangleMesh, [Double])]) -> Data {
+    static func encode(primitives: [(TriangleMesh, [Double])], textured: [TexturedQuad] = []) -> Data {
         var buffer = Data()
         var bufferViews: [[String: Any]] = []
         var accessors: [[String: Any]] = []
         var primitiveJSON: [[String: Any]] = []
         var materials: [[String: Any]] = []
+        var images: [[String: Any]] = []
+        var textureJSON: [[String: Any]] = []
 
         for (mesh, color) in primitives where !mesh.isEmpty {
             let positionView = append(floats: mesh.positions, to: &buffer, views: &bufferViews, target: 34962)
@@ -193,7 +232,61 @@ enum GLBEncoder {
             ])
         }
 
-        let jsonObject: [String: Any] = [
+        for quad in textured where quad.positions.count >= 12 && quad.uvs.count >= 8 {
+            let positionView = append(floats: quad.positions, to: &buffer, views: &bufferViews, target: 34962)
+            let normalView = append(floats: quad.normals, to: &buffer, views: &bufferViews, target: 34962)
+            let uvView = append(floats: quad.uvs, to: &buffer, views: &bufferViews, target: 34962)
+            let indexView = append(indices: quad.indices, to: &buffer, views: &bufferViews)
+            let imageView = append(bytes: quad.jpeg, to: &buffer, views: &bufferViews)
+            let positionAccessor = accessors.count
+            accessors.append(positionAccessorJSON(quad.positions, view: positionView))
+            accessors.append([
+                "bufferView": normalView,
+                "componentType": 5126,
+                "count": quad.normals.count / 3,
+                "type": "VEC3"
+            ])
+            accessors.append([
+                "bufferView": uvView,
+                "componentType": 5126,
+                "count": quad.uvs.count / 2,
+                "type": "VEC2"
+            ])
+            accessors.append([
+                "bufferView": indexView,
+                "componentType": 5125,
+                "count": quad.indices.count,
+                "type": "SCALAR"
+            ])
+            let imageIndex = images.count
+            images.append([
+                "bufferView": imageView,
+                "mimeType": "image/jpeg"
+            ])
+            let textureIndex = textureJSON.count
+            textureJSON.append(["source": imageIndex])
+            let materialIndex = materials.count
+            materials.append([
+                "doubleSided": true,
+                "pbrMetallicRoughness": [
+                    "baseColorTexture": ["index": textureIndex],
+                    "metallicFactor": 0.0,
+                    "roughnessFactor": 1.0
+                ]
+            ])
+            primitiveJSON.append([
+                "attributes": [
+                    "POSITION": positionAccessor,
+                    "NORMAL": positionAccessor + 1,
+                    "TEXCOORD_0": positionAccessor + 2
+                ],
+                "indices": positionAccessor + 3,
+                "material": materialIndex,
+                "mode": 4
+            ])
+        }
+
+        var jsonObject: [String: Any] = [
             "asset": ["version": "2.0", "generator": "Home Scanner"],
             "scene": 0,
             "scenes": [["nodes": [0]]],
@@ -204,6 +297,10 @@ enum GLBEncoder {
             "bufferViews": bufferViews,
             "accessors": accessors
         ]
+        if !images.isEmpty {
+            jsonObject["images"] = images
+            jsonObject["textures"] = textureJSON
+        }
         let json = (try? JSONSerialization.data(withJSONObject: jsonObject)) ?? Data("{}".utf8)
         return pack(json: json, bin: buffer)
     }
@@ -243,6 +340,22 @@ enum GLBEncoder {
             "byteOffset": offset,
             "byteLength": indices.count * 4,
             "target": 34963
+        ])
+        return viewIndex
+    }
+
+    private static func append(bytes: Data, to buffer: inout Data, views: inout [[String: Any]]) -> Int {
+        let viewIndex = views.count
+        let offset = buffer.count
+        buffer.append(bytes)
+        let extra = (4 - (buffer.count % 4)) % 4
+        if extra > 0 {
+            buffer.append(Data(repeating: 0, count: extra))
+        }
+        views.append([
+            "buffer": 0,
+            "byteOffset": offset,
+            "byteLength": bytes.count
         ])
         return viewIndex
     }

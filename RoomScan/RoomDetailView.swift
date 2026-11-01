@@ -27,6 +27,7 @@ struct RoomDetailView: View {
     @State private var rescanning = false
     @State private var compareRoomID: UUID?
     @State private var showHeat = false
+    @State private var texturing = false
     @Environment(\.dismiss) private var dismiss
 
     private enum Page: String, CaseIterable, Identifiable {
@@ -128,6 +129,9 @@ struct RoomDetailView: View {
         .fullScreenCover(isPresented: $rescanning) {
             ScanRoomView(homeID: homeID, replacingRoomID: roomID) { rescanning = false }
         }
+        .sheet(isPresented: $texturing) {
+            TextureStudioView(homeID: homeID, roomID: roomID)
+        }
         .overlay {
             if sending {
                 ProgressView("Sending to Home Assistant")
@@ -151,7 +155,8 @@ struct RoomDetailView: View {
                 cameraToken: cameraToken,
                 onSelectPin: { selectedPinID = $0 },
                 onPlace: { place(at: $0, in: room) },
-                onRenderedUSDZ: { renderedUSDZ = $0 }
+                onRenderedUSDZ: { renderedUSDZ = $0 },
+                surfacePaints: TexturePaints.forRoom(room, homeId: homeID, store: store)
             )
             caption(room)
         }
@@ -323,6 +328,7 @@ struct RoomDetailView: View {
                 }
                 Divider()
                 Button(showHeat ? "Hide sensor heatmap" : "Show sensor heatmap") { showHeat.toggle() }
+                Button("Wall photos") { texturing = true }
                 if LiDARSupport.canScan {
                     Button("Re-scan this room") { rescanning = true }
                 }

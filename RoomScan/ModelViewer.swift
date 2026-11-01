@@ -4,6 +4,12 @@ import SwiftUI
 import RoomScanCore
 import UIKit
 
+struct SurfacePaint {
+    var surfaceId: UUID
+    var image: UIImage
+    var corners: [ImagePoint]
+}
+
 struct RoomModelView: UIViewRepresentable {
     var layers: [PlanLayer]
     var usdzURL: URL?
@@ -17,6 +23,7 @@ struct RoomModelView: UIViewRepresentable {
     var onSelectPin: (UUID?) -> Void
     var onPlace: (Vec3) -> Void
     var onRenderedUSDZ: (Bool) -> Void
+    var surfacePaints: [SurfacePaint] = []
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -68,7 +75,47 @@ struct RoomModelView: UIViewRepresentable {
         }
         if let scene = view.scene {
             replacePins(in: scene)
+            replaceTextures(in: scene)
         }
+    }
+
+    private func replaceTextures(in scene: SCNScene) {
+        scene.rootNode.childNodes
+            .filter { $0.name?.hasPrefix("texture:") == true }
+            .forEach { $0.removeFromParentNode() }
+        for paint in surfacePaints {
+            for layer in layers {
+                if let wall = layer.plan.walls.first(where: { $0.id == paint.surfaceId }) {
+                    addTexturedQuad(SurfaceFrame.wallCorners(wall, offset: layer.offset), paint: paint, in: scene)
+                }
+                if let floor = layer.plan.floors.first(where: { $0.id == paint.surfaceId }) {
+                    let corners = SurfaceFrame.floorCorners(floor, offset: layer.offset)
+                    if corners.count == 4 {
+                        addTexturedQuad(corners, paint: paint, in: scene)
+                    }
+                }
+            }
+        }
+    }
+
+    private func addTexturedQuad(_ corners: [Vec3], paint: SurfacePaint, in scene: SCNScene) {
+        guard corners.count == 4, paint.corners.count == 4 else { return }
+        let vertices = corners.map { SCNVector3(Float($0.x), Float($0.y), Float($0.z)) }
+        let coordinates = paint.corners.map { CGPoint(x: $0.x, y: 1 - $0.y) }
+        let vertexSource = SCNGeometrySource(vertices: vertices)
+        let uvSource = SCNGeometrySource(textureCoordinates: coordinates)
+        var indices: [UInt32] = [0, 1, 2, 0, 2, 3]
+        let indexData = indices.withUnsafeBufferPointer { Data(buffer: $0) }
+        let element = SCNGeometryElement(data: indexData, primitiveType: .triangles, primitiveCount: 2, bytesPerIndex: 4)
+        let geometry = SCNGeometry(sources: [vertexSource, uvSource], elements: [element])
+        let material = SCNMaterial()
+        material.diffuse.contents = paint.image
+        material.lightingModel = .constant
+        material.isDoubleSided = true
+        geometry.materials = [material]
+        let node = SCNNode(geometry: geometry)
+        node.name = "texture:\(paint.surfaceId.uuidString)"
+        scene.rootNode.addChildNode(node)
     }
 
     private func copyChildren(from source: SCNScene, into destination: SCNScene) {

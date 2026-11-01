@@ -35,6 +35,7 @@ Scans are written under the app's Documents folder (`Homes/<id>/`), which the Fi
 - Show live light, switch, and sensor readings on the pins. The app polls the REST API and subscribes to `state_changed` on the websocket.
 - Send the layout and a model to Home Assistant, or share a `.zip` and a floor-plan PDF.
 - Read furniture labels and dimensions, compare two scans, and lay a sensor heatmap over the plan.
+- Project photos onto walls and floors. Capture frames during the scan, or bring in library, camera, and Files photos (including drone pictures), then drag the four corners. Textures are stored beside the home and baked into the GLB and USDZ sent to Home Assistant.
 
 ## Architecture
 
@@ -127,6 +128,7 @@ Added on top of that:
 - Floor area, wall lengths, door widths, and a PDF export
 - Re-scan diff: added, removed, and moved objects, with the option to replace the room
 - A sensor heatmap interpolated across numeric pin readings
+- Photo textures on walls and floors, including frames captured during the scan, with a four-corner fit baked into the GLB and USDZ
 
 ## Limits
 

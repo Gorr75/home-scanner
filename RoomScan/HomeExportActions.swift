@@ -4,11 +4,19 @@ import RoomScanCore
 @MainActor
 enum HomeExportActions {
     static func packages(for home: Home, store: HomeStore) throws -> [ScanPackage] {
-        try HomeExport.packages(for: home, usdzFiles: store.usdzFiles(in: home))
+        try HomeExport.packages(
+            for: home,
+            usdzFiles: store.usdzFiles(in: home),
+            textures: store.appliedTextures(in: home)
+        )
     }
 
     static func zipURL(for home: Home, store: HomeStore) throws -> URL {
-        let data = try HomeExport.zip(for: home, usdzFiles: store.usdzFiles(in: home))
+        let data = try HomeExport.zip(
+            for: home,
+            usdzFiles: store.usdzFiles(in: home),
+            textures: store.appliedTextures(in: home)
+        )
         var name = home.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if name.isEmpty { name = "Home" }
         name = name.replacingOccurrences(of: "/", with: "-")
