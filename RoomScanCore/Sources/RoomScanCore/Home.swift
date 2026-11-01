@@ -249,6 +249,13 @@ public struct Home: Equatable, Identifiable, Sendable {
     public func outdoorZone(id: UUID) -> OutdoorZone? {
         outdoorZones.first { $0.id == id }
     }
+
+    public var hasWallTextures: Bool {
+        if rooms.contains(where: { $0.floorPlan.walls.contains(where: { $0.texture != nil }) }) {
+            return true
+        }
+        return outdoorZones.contains { $0.walls.contains { $0.texture != nil } }
+    }
 }
 
 extension Home: Codable {

@@ -13,6 +13,8 @@ public struct WallSegment: Codable, Equatable, Identifiable, Sendable {
     @Quantized public var height: Double
     @Quantized public var thickness: Double
     public var confidence: ScanConfidence?
+    /// Photo mapped onto this wall. The same object is used for an indoor room wall and an outdoor facade.
+    public var texture: SurfaceTexture?
 
     public init(
         id: UUID,
@@ -20,7 +22,8 @@ public struct WallSegment: Codable, Equatable, Identifiable, Sendable {
         end: Vec3,
         height: Double,
         thickness: Double,
-        confidence: ScanConfidence? = nil
+        confidence: ScanConfidence? = nil,
+        texture: SurfaceTexture? = nil
     ) {
         self.id = id
         self.start = start
@@ -28,6 +31,7 @@ public struct WallSegment: Codable, Equatable, Identifiable, Sendable {
         self.height = height
         self.thickness = thickness
         self.confidence = confidence
+        self.texture = texture
     }
 
     public var length: Double {

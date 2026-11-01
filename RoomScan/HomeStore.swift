@@ -135,6 +135,9 @@ final class HomeStore {
         pixelWidth: Int,
         pixelHeight: Int,
         widthMeters: Double,
+        heightMeters: Double? = nil,
+        yaw: Double? = nil,
+        center: Vec3? = nil,
         georeference: Georeference?
     ) throws -> Home {
         let home = try repository.importUnderlay(
@@ -143,7 +146,85 @@ final class HomeStore {
             pixelWidth: pixelWidth,
             pixelHeight: pixelHeight,
             widthMeters: widthMeters,
+            heightMeters: heightMeters,
+            yaw: yaw,
+            center: center,
             georeference: georeference
+        )
+        refresh()
+        return home
+    }
+
+    @discardableResult
+    func importDroneOverlay(
+        homeId: UUID,
+        id: UUID = UUID(),
+        image: Data,
+        fileExtension: String,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        center: Vec3,
+        yaw: Double,
+        widthMeters: Double,
+        heightMeters: Double,
+        georeference: Georeference?,
+        altitudeMeters: Double?,
+        relativeAltitudeMeters: Double?,
+        focalLengthMillimeters: Double?,
+        focalLength35mm: Double?,
+        headingDegrees: Double?,
+        pitchDegrees: Double?,
+        note: String?
+    ) throws -> Home {
+        let home = try repository.importDroneOverlay(
+            homeId: homeId,
+            id: id,
+            image: image,
+            fileExtension: fileExtension,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            center: center,
+            yaw: yaw,
+            widthMeters: widthMeters,
+            heightMeters: heightMeters,
+            georeference: georeference,
+            altitudeMeters: altitudeMeters,
+            relativeAltitudeMeters: relativeAltitudeMeters,
+            focalLengthMillimeters: focalLengthMillimeters,
+            focalLength35mm: focalLength35mm,
+            headingDegrees: headingDegrees,
+            pitchDegrees: pitchDegrees,
+            note: note
+        )
+        refresh()
+        return home
+    }
+
+    func deleteDroneOverlay(homeId: UUID, overlayId: UUID) throws {
+        try repository.deleteDroneOverlay(homeId: homeId, overlayId: overlayId)
+        refresh()
+    }
+
+    @discardableResult
+    func setFacadeTexture(
+        homeId: UUID,
+        zoneId: UUID,
+        wallId: UUID,
+        imageRelativePath: String,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        corners: [UVPoint],
+        imageData: Data? = nil
+    ) throws -> Home {
+        let home = try repository.setFacadeTexture(
+            homeId: homeId,
+            zoneId: zoneId,
+            wallId: wallId,
+            imageRelativePath: imageRelativePath,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            corners: corners,
+            imageData: imageData
         )
         refresh()
         return home
@@ -155,12 +236,23 @@ final class HomeStore {
     }
 
     @discardableResult
-    func installSampleSite(homeId: UUID, image: Data?, pixelWidth: Int, pixelHeight: Int) throws -> Home {
+    func installSampleSite(
+        homeId: UUID,
+        image: Data?,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        facade: Data? = nil,
+        facadePixelWidth: Int = 0,
+        facadePixelHeight: Int = 0
+    ) throws -> Home {
         let home = try repository.installSampleSite(
             homeId: homeId,
             image: image,
             pixelWidth: pixelWidth,
-            pixelHeight: pixelHeight
+            pixelHeight: pixelHeight,
+            facade: facade,
+            facadePixelWidth: facadePixelWidth,
+            facadePixelHeight: facadePixelHeight
         )
         refresh()
         return home
@@ -213,10 +305,18 @@ enum SampleBundle {
     }
 
     static func siteImage() -> (data: Data, width: Int, height: Int)? {
+        imageResource(name: "SampleSite")
+    }
+
+    static func facadeImage() -> (data: Data, width: Int, height: Int)? {
+        imageResource(name: "SampleFacade")
+    }
+
+    private static func imageResource(name: String) -> (data: Data, width: Int, height: Int)? {
         let bundle = Bundle.main
         let urls = [
-            bundle.url(forResource: "SampleSite", withExtension: "png", subdirectory: "Resources"),
-            bundle.url(forResource: "SampleSite", withExtension: "png")
+            bundle.url(forResource: name, withExtension: "png", subdirectory: "Resources"),
+            bundle.url(forResource: name, withExtension: "png")
         ]
         for url in urls.compactMap({ $0 }) {
             guard let data = try? Data(contentsOf: url), let image = UIImage(data: data) else { continue }

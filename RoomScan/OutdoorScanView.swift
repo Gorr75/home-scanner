@@ -89,7 +89,7 @@ struct OutdoorScanView: View {
                         }
                     }
                     Section {
-                        Text("\(mesh.vertices.count) vertices kept within \(Int(OutdoorScanSupport.rangeMeters)) m of each mesh chunk.")
+                        Text(captureSummary(mesh))
                             .font(.footnote)
                             .foregroundStyle(Theme.secondary)
                     }
@@ -119,6 +119,12 @@ struct OutdoorScanView: View {
                 if name.isEmpty { name = kind.label }
             }
         }
+    }
+
+    private func captureSummary(_ mesh: TriangleMesh) -> String {
+        let survey = MeshSurveyor.analyze(mesh)
+        let range = Int(OutdoorScanSupport.rangeMeters)
+        return "\(mesh.vertices.count) vertices kept within \(range) m of each mesh chunk. \(survey.walls.count) facade planes, \(survey.ground.vertices.count) ground points. Walking farther than \(range) m is kept; each chunk is still clipped to the sensor range."
     }
 
     private func finish() {

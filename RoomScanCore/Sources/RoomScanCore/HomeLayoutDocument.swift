@@ -22,7 +22,7 @@ public struct HomeLayoutDocument: Codable, Equatable, Sendable {
     public static let formatIdentifier = "roomscan.home"
     /// Indoor rooms and pins. Still read by this version of the app.
     public static let indoorVersion = 1
-    /// Adds outdoor zones and an optional site plan.
+    /// Outdoor zones, a site plan, drone overlays, and per-wall textures.
     public static let outdoorVersion = 2
 
     public var format: String
@@ -36,7 +36,7 @@ public struct HomeLayoutDocument: Codable, Equatable, Sendable {
     }
 
     public static func version(for home: Home) -> Int {
-        if home.site != nil || !home.outdoorZones.isEmpty {
+        if home.site != nil || !home.outdoorZones.isEmpty || home.hasWallTextures {
             return outdoorVersion
         }
         return indoorVersion

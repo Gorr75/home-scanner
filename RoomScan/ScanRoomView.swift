@@ -1,3 +1,4 @@
+import Foundation
 import RoomPlan
 import SwiftUI
 import RoomScanCore
@@ -212,6 +213,18 @@ final class ScanSessionController: NSObject, ObservableObject, RoomCaptureViewDe
     private weak var captureView: RoomCaptureView?
     private var cancelled = false
     private var didStop = false
+
+    override init() {
+        super.init()
+    }
+
+    // RoomCaptureViewDelegate and RoomCaptureSessionDelegate inherit NSCoding.
+    // This controller is never archived, so decoding is unsupported.
+    required init?(coder: NSCoder) {
+        fatalError("ScanSessionController does not support NSCoding")
+    }
+
+    func encode(with coder: NSCoder) {}
 
     var phaseIsProcessing: Bool {
         if case .processing = phase { return true }

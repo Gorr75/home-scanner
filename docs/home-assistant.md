@@ -7,7 +7,7 @@ Nothing in the file is a credential. Do not put a long-lived access token, a bas
 ## File
 
 - Format id: `roomscan.home`
-- Version: `1` for an indoor home, `2` when the home has outdoor zones or a site plan
+- Version: `1` for an indoor home with no wall photos, `2` when the home has outdoor zones, a site plan, or any wall texture
 - Encoding: UTF-8 JSON
 - Dates: ISO 8601, UTC (`2026-01-01T00:00:00Z`)
 - Keys: `snake_case`
@@ -159,34 +159,74 @@ Settings for the base URL and token belong in that future client, not in `home.j
 
 The format id stays `roomscan.home`. The app on the home screen is Home Scanner.
 
-## Version 2: outdoor zones and a site plan
+## Version 2: site plan, outdoor zones, and wall textures
 
-Version `1` files still open. A home with an outdoor scan or a site plan is written as version `2`. Version `1` readers should reject that, because they cannot draw it. This app reads both.
+Version `1` files still open. A home is written as version `2` when it has an outdoor scan, a site plan, or a texture on any wall. Version `1` readers should reject that. This app reads both.
 
-`outdoor_zones` is omitted when empty. `site` is omitted when there is no underlay and no placements.
+`outdoor_zones` is omitted when empty. `site` is omitted when there is no underlay, no placements, and no drone overlays. New keys inside version 2 are omitted when empty, so a file written before facade walls and drone overlays still opens.
+
+### `texture` on a wall
+
+Indoor walls (`rooms[].floor_plan.walls[]`) and outdoor facade walls (`outdoor_zones[].walls[]`) use this same object. A reader that can draw one can draw the other. The indoor editor is expected to write this object and not a second shape.
+
+| Field | Meaning |
+| --- | --- |
+| `image` | Relative path of the photo. |
+| `pixel_width`, `pixel_height` | Size of that photo. |
+| `corners` | Exactly four `{u, v}` points. `u` grows right, `v` grows down, both 0...1. |
+
+Corner order is the wall quad:
+
+1. bottom at `start`
+2. bottom at `end`
+3. top at `end`
+4. top at `start`
+
+The four points are a perspective correspondence. They are not two affine triangles. A 3D view may subdivide the wall and sample the homography so the photo still looks right when it was taken at an angle.
+
+```json
+"texture": {
+  "image": "site/overlays/6f0c2a10-4b1e-4e0a-9c11-0000000000b2.jpg",
+  "pixel_width": 4032,
+  "pixel_height": 3024,
+  "corners": [
+    {"u": 0.12, "v": 0.84},
+    {"u": 0.8, "v": 0.78},
+    {"u": 0.74, "v": 0.16},
+    {"u": 0.1, "v": 0.2}
+  ]
+}
+```
 
 ### `outdoor_zones[]`
 
-A zone is a LiDAR scene mesh of a facade, patio, shed, or yard. It is not a RoomPlan room. Vertices farther than 5 meters from a mesh chunk are dropped before the file is written.
+A zone is a LiDAR scene mesh of a facade, patio, shed, or yard. It is not a RoomPlan room. Each mesh anchor is clipped to 5 meters. The saved mesh can cover more ground once the phone has walked.
 
 | Field | Meaning |
 | --- | --- |
 | `id`, `name`, `created_at` | Identity. |
 | `kind` | `facade`, `patio`, `shed`, `yard`, or `other`. |
-| `footprint` | Four ground corners in the zone's own scan space, meters. |
+| `footprint` | Axis-aligned ground rectangle in the zone's scan space, meters. |
+| `building_footprint` | Convex hull of the vertical faces, omitted when empty. |
 | `height` | Vertical extent of the mesh, meters. |
-| `mesh_vertex_count` | Vertices kept after the 5 meter clip. |
-| `assets.obj` | Relative path of a Wavefront OBJ sidecar. |
+| `mesh_vertex_count` | Vertices stored in the OBJ. |
+| `ground_vertex_count` | Vertices on the upward ground band. Omitted when zero. |
+| `assets.obj` | Relative path of the whole mesh. |
+| `assets.terrain` | Optional path of the ground faces only. |
+| `walls[]` | Facade planes. Same wall fields as an indoor wall, including optional `texture`. Omitted when empty. |
 
 ### `site`
 
+Site +X is east and site +Z is north. `yaw` rotates a photo on the plan. `heading_degrees` records the bearing of the unrotated +Z axis and does not, by itself, rotate the bitmap.
+
 | Field | Meaning |
 | --- | --- |
-| `underlay.image` | Relative path of the aerial or drone photo, usually `site/underlay.jpg`. |
+| `underlay.image` | Relative path of the aerial photo, usually `site/underlay.jpg`. |
 | `underlay.pixel_width`, `pixel_height` | Image size in pixels. |
-| `underlay.width_meters`, `height_meters` | The photo's size on the ground after the person sets the scale. Meters per pixel is `width_meters / pixel_width`. |
-| `underlay.center`, `yaw` | Where the photo sits in site space. `yaw` is radians around Y. |
-| `underlay.georeference` | Optional `latitude`, `longitude`, and `heading_degrees` (clockwise from true north to the photo's +Z axis, before yaw). |
+| `underlay.width_meters`, `height_meters` | The photo's size on the ground. Meters per pixel is `width_meters / pixel_width`. |
+| `underlay.center`, `yaw` | Where the photo sits, and its rotation on the plan. `yaw` is radians around Y. |
+| `underlay.georeference` | Optional `latitude`, `longitude`, and `heading_degrees`. A SWEREF 99 TM GeoTIFF fills latitude and longitude. |
+| `overlays[]` | Drone photos. Omitted when empty. Each has `image`, pixel size, `center`, `yaw`, `width_meters`, `height_meters`, and optional GPS fields: `georeference`, `altitude_meters`, `relative_altitude_meters`, `focal_length_millimeters`, `focal_length35mm`, `heading_degrees`, `pitch_degrees`, `note`. When both the overlay and the underlay have a latitude, the plan position is recomputed from those coordinates. |
 | `placements[]` | Each entry places one `room` or `outdoor_zone` onto the site. `origin` is the subject's local origin in site meters. `yaw` rotates it around Y. |
 
 ```json
@@ -196,4 +236,4 @@ A zone is a LiDAR scene mesh of a facade, patio, shed, or yard. It is not a Room
 }
 ```
 
-Indoor floor plans stay in room-local meters. The site placement is how they are drawn on the photo. Device pins are unchanged and still live in the room.
+Indoor floor plans stay in room-local meters. The site placement is how they are drawn on the photo. Device pins are unchanged and still live in the room. The shared JSON is one file, `<Home name>.roomscan.json`. Photos and meshes stay as sidecars in the home folder.
