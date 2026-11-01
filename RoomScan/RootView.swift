@@ -76,7 +76,7 @@ enum PreviewStore {
         let repository = try! HomeRepository(root: root)
         let store = HomeStore(repository: repository)
         if store.home(id: SampleApartment.homeID) == nil {
-            try? store.installSample(usdz: nil)
+            _ = try? store.installSample(usdz: nil)
         }
         return store
     }

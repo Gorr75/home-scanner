@@ -1,3 +1,4 @@
+import Foundation
 import RoomScanCore
 
 struct PlanLayer: Equatable, Identifiable {

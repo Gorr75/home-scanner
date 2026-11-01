@@ -343,11 +343,11 @@ struct RoomModelView: UIViewRepresentable {
             guard let view = gesture.view as? SCNView else { return }
             let point = gesture.location(in: view)
             let hits = view.hitTest(point, options: nil)
-            if let pin = hits.lazy.compactMap({ pinID(in: $0.node) }).first {
+            if let pin = hits.lazy.compactMap({ self.pinID(in: $0.node) }).first {
                 parent.onSelectPin(pin)
                 return
             }
-            guard parent.placementEnabled, let hit = hits.first(where: { pinID(in: $0.node) == nil }) else {
+            guard parent.placementEnabled, let hit = hits.first(where: { self.pinID(in: $0.node) == nil }) else {
                 if !parent.placementEnabled {
                     parent.onSelectPin(nil)
                 }
