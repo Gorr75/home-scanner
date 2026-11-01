@@ -29,6 +29,7 @@ struct RoomDetailView: View {
     private enum Page: String, CaseIterable, Identifiable {
         case model = "Model"
         case plan = "Plan"
+        case objects = "Objects"
         case devices = "Devices"
         var id: String { rawValue }
     }
@@ -55,6 +56,8 @@ struct RoomDetailView: View {
                         model(home, room: room)
                     case .plan:
                         plan(room)
+                    case .objects:
+                        objectList(room)
                     case .devices:
                         deviceList
                     }
@@ -154,6 +157,32 @@ struct RoomDetailView: View {
                 create(in: roomID, x: x, z: z, y: placeKind.defaultHeight)
             }
         )
+    }
+
+    private func objectList(_ room: Room) -> some View {
+        List {
+            if room.floorPlan.objects.isEmpty {
+                ContentUnavailableView(
+                    "No furniture recognized",
+                    systemImage: "cube",
+                    description: Text("RoomPlan names sofas, tables, and appliances when the scan can see them.")
+                )
+            }
+            ForEach(room.floorPlan.objects) { object in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ObjectLabels.title(for: object.category))
+                    Text(ObjectLabels.size(object))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Theme.secondary)
+                    if let confidence = object.confidence {
+                        Text(confidence.rawValue.capitalized)
+                            .font(.caption2)
+                            .foregroundStyle(Theme.secondary)
+                    }
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
     }
 
     private var deviceList: some View {

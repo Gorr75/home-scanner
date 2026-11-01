@@ -229,6 +229,14 @@ struct FloorPlanCanvas: View {
             path.closeSubpath()
             context.fill(path, with: .color(Theme.ink.opacity(0.08)))
             context.stroke(path, with: .color(Theme.ink.opacity(0.35)), lineWidth: 1)
+            let anchor = shifted(object.center, by: layer.offset)
+            let screen = point(projector.screen(x: anchor.x, z: anchor.z))
+            context.draw(
+                Text("\(ObjectLabels.title(for: object.category))\n\(ObjectLabels.footprint(object))")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.ink),
+                at: screen
+            )
         }
     }
 
