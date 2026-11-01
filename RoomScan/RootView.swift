@@ -86,4 +86,5 @@ enum PreviewStore {
     RootView()
         .environment(PreviewStore.make())
         .environment(PinBoard())
+        .environment(HomeAssistantSettings(defaults: UserDefaults(suiteName: "HomeScannerPreview") ?? .standard))
 }

@@ -64,8 +64,8 @@ extension HomeStateError: LocalizedError {
     }
 }
 
-/// Live device state. v1 ships `MockHomeStateProvider`. A later client can
-/// implement this with the Home Assistant REST and WebSocket APIs.
+/// Live device state. `MockHomeStateProvider` is the stand-in until Settings
+/// has a base URL and a Keychain token. `HomeAssistantClient` speaks REST.
 public protocol HomeStateProvider: Sendable {
     func snapshot(for entityId: String) async throws -> EntitySnapshot
     func snapshots(for entityIds: [String]) async throws -> [EntitySnapshot]
