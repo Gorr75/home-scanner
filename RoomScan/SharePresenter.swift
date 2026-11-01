@@ -17,6 +17,12 @@ enum SharePresenter {
         presenter.present(controller, animated: true)
     }
 
+    static func open(_ url: URL, completion: @escaping (Bool) -> Void) {
+        DispatchQueue.main.async {
+            UIApplication.shared.open(url, options: [:], completionHandler: completion)
+        }
+    }
+
     private static func topViewController() -> UIViewController? {
         let scene = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }

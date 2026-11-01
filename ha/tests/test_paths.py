@@ -1,0 +1,42 @@
+import importlib.util
+import os
+import tempfile
+import unittest
+
+_PATHS = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "custom_components",
+    "home_scanner",
+    "paths.py",
+)
+_SPEC = importlib.util.spec_from_file_location("home_scanner_paths", _PATHS)
+_MODULE = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_MODULE)
+destination_dir = _MODULE.destination_dir
+safe_slug = _MODULE.safe_slug
+
+
+class PathTests(unittest.TestCase):
+    def test_slug(self):
+        self.assertEqual(
+            safe_slug("6F0C2A10-4B1E-4E0A-9C11-000000000010"),
+            "6F0C2A10-4B1E-4E0A-9C11-000000000010",
+        )
+        self.assertIsNone(safe_slug("../etc"))
+        self.assertIsNone(safe_slug("rooms/kitchen"))
+        self.assertIsNone(safe_slug(""))
+        self.assertIsNone(safe_slug("."))
+
+    def test_destination_stays_under_www(self):
+        with tempfile.TemporaryDirectory() as config:
+            dest = destination_dir(config, "Kitchen_1")
+            root = os.path.realpath(os.path.join(config, "www", "home_scanner"))
+            self.assertTrue(dest.startswith(root + os.sep))
+            self.assertTrue(dest.endswith(os.path.join("home_scanner", "Kitchen_1")))
+            with self.assertRaises(ValueError):
+                destination_dir(config, "../etc")
+
+
+if __name__ == "__main__":
+    unittest.main()

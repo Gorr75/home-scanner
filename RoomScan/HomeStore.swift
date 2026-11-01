@@ -132,6 +132,20 @@ final class HomeStore {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    func usdzFiles(in home: Home) -> [String: Data] {
+        var files: [String: Data] = [:]
+        let paths = home.rooms.compactMap(\.assets.usdz) + [home.structure?.usdz].compactMap { $0 }
+        for relative in paths {
+            guard let url = existingFile(homeId: home.id, relative: relative) else { continue }
+            do {
+                files[relative] = try Data(contentsOf: url)
+            } catch {
+                continue
+            }
+        }
+        return files
+    }
+
     func structureModelURL(in home: Home) -> URL? {
         existingFile(homeId: home.id, relative: home.structure?.usdz)
     }

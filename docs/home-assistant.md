@@ -1,6 +1,6 @@
 # Home Assistant layout format
 
-Home Scanner does not talk to Home Assistant in this version. It stores the shape of a home and the devices you place in it, and it can export that as one JSON document. A later Home Assistant integration or Lovelace card can read the file. A later app build can fill in live states through the `HomeStateProvider` seam described below.
+Home Scanner stores the shape of a home and the devices you place in it. It can export that as one JSON document, show live entity state, and upload the layout plus a model to Home Assistant. The Lovelace card reads the uploaded files. See the upload section below and `web/viewer/README.md`.
 
 Nothing in the file is a credential. Do not put a long-lived access token, a base URL password, or any other secret in this JSON.
 
@@ -117,6 +117,25 @@ Present after a multi-room combine, and on the sample apartment.
 2. Draw `floors`, then `walls`, then `openings`, then `objects`, in the XZ plane.
 3. Draw each pin at `position.x`, `position.z`. Use `kind` for the icon and `entity_id` for state.
 4. Do not draw room pins on top of `overview_floor_plan` unless `coordinates_are_unified` is true.
+
+## Upload
+
+**Send to Home Assistant** posts each folder to `POST {baseURL}/api/home_scanner/upload/<id>` with the long-lived token. The custom integration `ha/custom_components/home_scanner/` checks the token, writes the files to `/config/www/home_scanner/<id>/`, and fires `home_scanner_layout_updated`.
+
+| App folder | What is inside | Card URL |
+| --- | --- | --- |
+| Home UUID | Full `roomscan.home` document, `model.glb`, optional `model.usdz` | `/local/home_scanner/<home-id>/layout.json` and `model.glb` |
+| Room UUID | The same document reduced to that room and its pins, plus that room's `model.glb` | `/local/home_scanner/<room-id>/layout.json` and `model.glb` |
+
+`model.glb` is Y-up meters. A room file matches that room's scan. The home file uses the aligned shell when a combine has produced one, and otherwise lays rooms out side by side. A card that draws pins on the model should use the room folder.
+
+**Share a .zip** builds the same tree (`home_scanner/<id>/...`) for the iOS share sheet. Unzip it into `/config/www/` if the integration is not installed yet.
+
+After a successful upload the app opens `homeassistant://navigate/lovelace/home-scanner` in the Home Assistant companion app. Create a Lovelace view with path `home-scanner`.
+
+Install steps, the health check, and a dashboard example are in [ha/custom_components/home_scanner/README.md](../ha/custom_components/home_scanner/README.md).
+
+Test connection calls `GET /api`, `GET /api/config`, and `GET /api/home_scanner/health`.
 
 ## Live state
 

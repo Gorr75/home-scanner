@@ -4,6 +4,7 @@ import RoomScanCore
 struct RoomDetailView: View {
     @Environment(HomeStore.self) private var store
     @Environment(PinBoard.self) private var pinBoard
+    @Environment(HomeAssistantSettings.self) private var assistant
 
     let homeID: UUID
     let roomID: UUID
@@ -19,6 +20,10 @@ struct RoomDetailView: View {
     @State private var renameDraft = ""
     @State private var confirmingDelete = false
     @State private var errorMessage: String?
+    @State private var sending = false
+    @State private var showSettings = false
+    @State private var showUploaded = false
+    @State private var uploadedMessage = ""
     @Environment(\.dismiss) private var dismiss
 
     private enum Page: String, CaseIterable, Identifiable {
@@ -95,6 +100,22 @@ struct RoomDetailView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+        .alert("Sent to Home Assistant", isPresented: $showUploaded) {
+            Button("Open Home Assistant") { openCompanion() }
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(uploadedMessage)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
+        .overlay {
+            if sending {
+                ProgressView("Sending to Home Assistant")
+                    .padding(20)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
         }
     }
 
@@ -260,6 +281,11 @@ struct RoomDetailView: View {
                     renameDraft = room?.name ?? ""
                     renaming = true
                 }
+                Button("Home Assistant settings") { showSettings = true }
+                Button("Send to Home Assistant") { sendToHomeAssistant() }
+                    .disabled(sending)
+                Button("Share a .zip") { shareZip() }
+                Button("Open in Home Assistant") { openCompanion() }
                 Button("Export layout JSON") { shareJSON() }
                 Button("Share USDZ") { shareModel() }
                 Button("Reset camera") { cameraToken += 1 }
@@ -326,6 +352,51 @@ struct RoomDetailView: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func sendToHomeAssistant() {
+        guard let home else { return }
+        guard assistant.isConfigured, let client = assistant.makeClient() else {
+            errorMessage = "Add the Home Assistant URL and a long-lived token in Settings, then send the floor again."
+            showSettings = true
+            return
+        }
+        sending = true
+        Task {
+            defer { sending = false }
+            do {
+                let receipts = try await HomeExportActions.send(home, store: store, client: client)
+                uploadedMessage = "Uploaded \(receipts.count) folders. The card reads layout.json and model.glb under /local/home_scanner/."
+                showUploaded = true
+            } catch let error as HomeAssistantClientError {
+                if case .httpStatus(404, _) = error {
+                    errorMessage = "Home Assistant did not find /api/home_scanner/upload. Install the home_scanner integration, or share a zip and copy it into config/www."
+                } else {
+                    errorMessage = error.localizedDescription
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func shareZip() {
+        guard let home else { return }
+        do {
+            SharePresenter.present(url: try HomeExportActions.zipURL(for: home, store: store))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func openCompanion() {
+        guard let url = HomeAssistantLinks.companionDashboard else { return }
+        SharePresenter.open(url) { accepted in
+            guard !accepted else { return }
+            Task { @MainActor in
+                self.errorMessage = "The Home Assistant app did not open. Install the companion app, then try Open in Home Assistant again."
+            }
         }
     }
 

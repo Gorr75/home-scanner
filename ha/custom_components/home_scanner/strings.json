@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Home Scanner",
+        "description": "Accept floor plans from the Home Scanner app. Files are saved under /config/www/home_scanner and served at /local/home_scanner."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Home Scanner is already set up."
+    }
+  }
+}

@@ -94,6 +94,24 @@ public actor HomeAssistantClient: HomeStateProvider {
         }
     }
 
+    public func upload(slug: String, files: [HomeScannerFile]) async throws -> HomeScannerUploadReceipt {
+        guard let slug = HomeScannerSlug.accept(slug) else {
+            throw HomeAssistantClientError.httpStatus(400, "That folder name cannot be used on the server.")
+        }
+        guard files.contains(where: { $0.filename == "layout.json" }) else {
+            throw HomeAssistantClientError.malformedResponse
+        }
+        let boundary = "HomeScanner\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let body = MultipartForm.body(files: files, boundary: boundary)
+        let response = try await send(
+            path: "/api/home_scanner/upload/\(slug)",
+            method: "POST",
+            body: body,
+            contentType: "multipart/form-data; boundary=\(boundary)"
+        )
+        return try HomeAssistantDecoding.uploadReceipt(from: response.data, fallbackSlug: slug)
+    }
+
     public func perform(_ action: EntityAction, entityId: String) async throws -> EntitySnapshot {
         let id = try requireID(entityId)
         let current = try await snapshot(for: id)
