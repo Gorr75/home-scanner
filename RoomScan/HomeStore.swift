@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import RoomScanCore
+import UIKit
 
 @MainActor
 @Observable
@@ -115,6 +116,56 @@ final class HomeStore {
         return home
     }
 
+    @discardableResult
+    func addOutdoorZone(homeId: UUID, name: String, kind: OutdoorKind, mesh: TriangleMesh) throws -> Home {
+        let home = try repository.addOutdoorZone(homeId: homeId, name: name, kind: kind, mesh: mesh)
+        refresh()
+        return home
+    }
+
+    func deleteOutdoorZone(homeId: UUID, zoneId: UUID) throws {
+        try repository.deleteOutdoorZone(homeId: homeId, zoneId: zoneId)
+        refresh()
+    }
+
+    @discardableResult
+    func importUnderlay(
+        homeId: UUID,
+        image: Data,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        widthMeters: Double,
+        georeference: Georeference?
+    ) throws -> Home {
+        let home = try repository.importUnderlay(
+            homeId: homeId,
+            image: image,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            widthMeters: widthMeters,
+            georeference: georeference
+        )
+        refresh()
+        return home
+    }
+
+    func updateSite(homeId: UUID, _ body: (inout Site) -> Void) throws {
+        try repository.updateSite(homeId: homeId, body)
+        refresh()
+    }
+
+    @discardableResult
+    func installSampleSite(homeId: UUID, image: Data?, pixelWidth: Int, pixelHeight: Int) throws -> Home {
+        let home = try repository.installSampleSite(
+            homeId: homeId,
+            image: image,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight
+        )
+        refresh()
+        return home
+    }
+
     func fileURL(homeId: UUID, relative: String) throws -> URL {
         try repository.fileURL(homeId: homeId, relative: relative)
     }
@@ -157,6 +208,21 @@ enum SampleBundle {
             if let data = try? Data(contentsOf: url) {
                 return data
             }
+        }
+        return nil
+    }
+
+    static func siteImage() -> (data: Data, width: Int, height: Int)? {
+        let bundle = Bundle.main
+        let urls = [
+            bundle.url(forResource: "SampleSite", withExtension: "png", subdirectory: "Resources"),
+            bundle.url(forResource: "SampleSite", withExtension: "png")
+        ]
+        for url in urls.compactMap({ $0 }) {
+            guard let data = try? Data(contentsOf: url), let image = UIImage(data: data) else { continue }
+            let width = Int(image.size.width * image.scale)
+            let height = Int(image.size.height * image.scale)
+            return (data, max(width, 1), max(height, 1))
         }
         return nil
     }

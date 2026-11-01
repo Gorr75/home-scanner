@@ -7,7 +7,7 @@ Nothing in the file is a credential. Do not put a long-lived access token, a bas
 ## File
 
 - Format id: `roomscan.home`
-- Version: `1`
+- Version: `1` for an indoor home, `2` when the home has outdoor zones or a site plan
 - Encoding: UTF-8 JSON
 - Dates: ISO 8601, UTC (`2026-01-01T00:00:00Z`)
 - Keys: `snake_case`
@@ -157,4 +157,43 @@ Normalize cover and lock states in that client (`open` / `closed`, `locked` / `u
 
 Settings for the base URL and token belong in that future client, not in `home.json`.
 
-The format id stays `roomscan.home`. The app on the home screen is Home Scanner. Outdoor site plans are a later addition and are not part of this file yet. See [roadmap.md](roadmap.md).
+The format id stays `roomscan.home`. The app on the home screen is Home Scanner.
+
+## Version 2: outdoor zones and a site plan
+
+Version `1` files still open. A home with an outdoor scan or a site plan is written as version `2`. Version `1` readers should reject that, because they cannot draw it. This app reads both.
+
+`outdoor_zones` is omitted when empty. `site` is omitted when there is no underlay and no placements.
+
+### `outdoor_zones[]`
+
+A zone is a LiDAR scene mesh of a facade, patio, shed, or yard. It is not a RoomPlan room. Vertices farther than 5 meters from a mesh chunk are dropped before the file is written.
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `name`, `created_at` | Identity. |
+| `kind` | `facade`, `patio`, `shed`, `yard`, or `other`. |
+| `footprint` | Four ground corners in the zone's own scan space, meters. |
+| `height` | Vertical extent of the mesh, meters. |
+| `mesh_vertex_count` | Vertices kept after the 5 meter clip. |
+| `assets.obj` | Relative path of a Wavefront OBJ sidecar. |
+
+### `site`
+
+| Field | Meaning |
+| --- | --- |
+| `underlay.image` | Relative path of the aerial or drone photo, usually `site/underlay.jpg`. |
+| `underlay.pixel_width`, `pixel_height` | Image size in pixels. |
+| `underlay.width_meters`, `height_meters` | The photo's size on the ground after the person sets the scale. Meters per pixel is `width_meters / pixel_width`. |
+| `underlay.center`, `yaw` | Where the photo sits in site space. `yaw` is radians around Y. |
+| `underlay.georeference` | Optional `latitude`, `longitude`, and `heading_degrees` (clockwise from true north to the photo's +Z axis, before yaw). |
+| `placements[]` | Each entry places one `room` or `outdoor_zone` onto the site. `origin` is the subject's local origin in site meters. `yaw` rotates it around Y. |
+
+```json
+{
+  "kind": "outdoor_zone",
+  "id": "UUID"
+}
+```
+
+Indoor floor plans stay in room-local meters. The site placement is how they are drawn on the photo. Device pins are unchanged and still live in the room.

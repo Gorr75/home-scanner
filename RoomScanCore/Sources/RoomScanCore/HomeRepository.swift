@@ -227,6 +227,139 @@ public final class HomeRepository {
         return homes.first(where: { $0.id == stored.id }) ?? stored
     }
 
+    @discardableResult
+    public func addOutdoorZone(
+        homeId: UUID,
+        name: String,
+        kind: OutdoorKind,
+        mesh: TriangleMesh,
+        now: Date = Date()
+    ) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        let clipped = MeshRange.clipped(mesh)
+        let shape = MeshRange.footprint(clipped)
+        let zoneID = UUID()
+        let relative = "outdoor/\(zoneID.uuidString).obj"
+        let text = MeshOBJ.encode(clipped)
+        guard let data = text.data(using: .utf8) else {
+            throw HomeRepositoryError.unreadable(name)
+        }
+        try write(data, homeId: homeId, relative: relative)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let zone = OutdoorZone(
+            id: zoneID,
+            name: trimmed.isEmpty ? kind.label : trimmed,
+            kind: kind,
+            createdAt: now,
+            footprint: shape.corners,
+            height: shape.height,
+            meshVertexCount: clipped.vertices.count,
+            assets: OutdoorAssets(obj: relative)
+        )
+        home.outdoorZones.append(zone)
+        return try save(home, now: now)
+    }
+
+    @discardableResult
+    public func deleteOutdoorZone(homeId: UUID, zoneId: UUID, now: Date = Date()) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        if let zone = home.outdoorZone(id: zoneId), let relative = zone.assets.obj {
+            try? removeFile(homeId: homeId, relative: relative)
+        }
+        home.deleteOutdoorZone(id: zoneId)
+        return try save(home, now: now)
+    }
+
+    @discardableResult
+    public func importUnderlay(
+        homeId: UUID,
+        image: Data,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        widthMeters: Double,
+        georeference: Georeference? = nil,
+        now: Date = Date()
+    ) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        let relative = "site/underlay.jpg"
+        try write(image, homeId: homeId, relative: relative)
+        let safeWidth = max(widthMeters, 0.1)
+        let aspect = pixelWidth > 0 ? Double(pixelHeight) / Double(pixelWidth) : 1
+        var site = home.site ?? Site()
+        let previous = site.underlay
+        site.underlay = SiteUnderlay(
+            image: relative,
+            pixelWidth: max(pixelWidth, 1),
+            pixelHeight: max(pixelHeight, 1),
+            widthMeters: safeWidth,
+            heightMeters: safeWidth * aspect,
+            center: previous?.center ?? .zero,
+            yaw: previous?.yaw ?? 0,
+            georeference: georeference ?? previous?.georeference
+        )
+        home.site = site
+        return try save(home, now: now)
+    }
+
+    @discardableResult
+    public func updateSite(homeId: UUID, now: Date = Date(), _ body: (inout Site) -> Void) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        var site = home.site ?? Site()
+        body(&site)
+        home.site = site
+        return try save(home, now: now)
+    }
+
+    /// Adds the bundled shed mesh and, when image bytes are provided, a site underlay.
+    /// Existing rooms are placed on the site if they are not already placed.
+    @discardableResult
+    public func installSampleSite(homeId: UUID, image: Data?, pixelWidth: Int, pixelHeight: Int, now: Date = Date()) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        if home.outdoorZone(id: SampleSite.patioID) == nil {
+            let mesh = SampleSite.shedMesh()
+            let relative = "outdoor/\(SampleSite.patioID.uuidString).obj"
+            guard let data = MeshOBJ.encode(mesh).data(using: .utf8) else {
+                throw HomeRepositoryError.unreadable("shed")
+            }
+            try write(data, homeId: homeId, relative: relative)
+            var zone = SampleSite.shedZone(createdAt: now)
+            zone.assets.obj = relative
+            home.outdoorZones.append(zone)
+        }
+        if let image {
+            let relative = "site/underlay.jpg"
+            try write(image, homeId: homeId, relative: relative)
+            let width = 40.0
+            let aspect = pixelWidth > 0 ? Double(pixelHeight) / Double(pixelWidth) : 1
+            var site = home.site ?? Site()
+            site.underlay = SiteUnderlay(
+                image: relative,
+                pixelWidth: max(pixelWidth, 1),
+                pixelHeight: max(pixelHeight, 1),
+                widthMeters: width,
+                heightMeters: width * aspect,
+                georeference: Georeference(latitude: 59.3293, longitude: 18.0686, headingDegrees: 12)
+            )
+            home.site = site
+        }
+        if home.site?.placements.isEmpty != false {
+            var site = home.site ?? Site()
+            site.placements = SiteLayout.defaultPlacements(rooms: home.rooms, zones: home.outdoorZones)
+            home.site = site
+        }
+        return try save(home, now: now)
+    }
+
     public func exportLayoutFile(for home: Home) throws -> URL {
         let data = try HomeLayoutDocument(home: home).encode()
         var name = home.name.trimmingCharacters(in: .whitespacesAndNewlines)

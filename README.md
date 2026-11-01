@@ -2,7 +2,9 @@
 
 Home Scanner measures a home with the iPhone LiDAR scanner and keeps the result on the device. You scan one room at a time, name it, and combine several rooms into a single floor. Each scan is stored as Apple's captured-room JSON plus a USDZ model. You can orbit the model, look at a top-down plan, drop device pins on it, and share the USDZ or a JSON layout.
 
-There is no account and no cloud upload. Home Assistant is not connected. The data model and a `HomeStateProvider` seam are in place so a later build can show live entity state. The JSON contract is [docs/home-assistant.md](docs/home-assistant.md). Outdoor scanning is not in this version; see [docs/roadmap.md](docs/roadmap.md).
+There is no account and no cloud upload. Home Assistant is not connected. The data model and a `HomeStateProvider` seam are in place so a later build can show live entity state. The JSON contract is [docs/home-assistant.md](docs/home-assistant.md).
+
+`main` is v1 and stops at indoor rooms. This `v2-outdoor` branch also scans outside. See [docs/roadmap.md](docs/roadmap.md) for what is still open.
 
 Bundle id: `se.jansson.homescan`.
 
@@ -18,7 +20,7 @@ Bundle id: `se.jansson.homescan`.
 1. Open `HomeScanner.xcodeproj`.
 2. Select the HomeScanner scheme and target, then set your Development Team. The project uses automatic signing and does not pick a team for you.
 3. On a LiDAR device: create a home, scan a room, name it, then scan the next room through the shared doorway and use **Combine into one floor**.
-4. In the simulator: run the app and tap **Sample**. That installs a two-room apartment (kitchen and living room) with a USDZ model, a floor plan, and four device pins backed by mock states.
+4. In the simulator: run the app and tap **Sample**. That installs a two-room apartment (kitchen and living room) with a USDZ model, a floor plan, and four device pins backed by mock states. Open the home, then **Site plan**, and tap **Sample yard** for a shed mesh and an aerial photo. The simulator cannot run the LiDAR mesh.
 
 Scans are written under the app's Documents folder (`Homes/<id>/`), which the Files app can see.
 
@@ -31,6 +33,7 @@ Scans are written under the app's Documents folder (`Homes/<id>/`), which the Fi
 - Share a USDZ, or share the home as `roomscan.home` JSON.
 - On a device without LiDAR, the app explains that and still opens anything already saved, including the sample.
 - Place, move, and delete device pins. Each pin has a name, a type, a 3D position, and an optional Home Assistant `entity_id` such as `light.kitchen`.
+- On this branch: scan a facade, patio, or shed as an ARKit LiDAR mesh (about 5 m), import an aerial or drone photo as a scaled site underlay, and drag indoor plans and outdoor scans onto it. The JSON export becomes version 2 when those are present.
 
 ## Architecture
 
@@ -53,7 +56,7 @@ RoomScanCore          Swift package, no UIKit and no RoomPlan
 
 The HomeScanner target links the local package `RoomScanCore`. The package keeps its current name. Unit tests live there so they run with `swift test` and do not need a simulator.
 
-Indoor RoomPlan is the only scan source today. A yard or facade would be a different source (an ARKit mesh, plus an aerial photo as a site underlay). That is described in the roadmap and is not implemented. Pins, the home document, and the state provider stay the shared model either way.
+Indoor rooms still come from RoomPlan. Outdoor zones come from an ARKit scene mesh, clipped to about 5 meters, and are stored as OBJ plus a ground footprint. An aerial or drone photo is a site underlay: you set its width in meters and can record latitude, longitude, and heading. Rooms and outdoor zones are then placed on that photo. Pins stay attached to indoor rooms.
 
 SceneKit is the viewer: it loads a RoomPlan USDZ when one exists, and otherwise builds walls and floors from the measured plan. Orbit and zoom use SceneKit's camera controller. Pins are hit-tested in that scene and on the plan.
 
@@ -118,4 +121,4 @@ Next:
 - `HomeAssistantClient`: base URL, long-lived token in the Keychain, REST plus WebSocket, live state and toggle on the pins
 - A Home Assistant custom integration or card that reads `roomscan.home`
 - More than one floor, and editing walls after a scan
-- Outdoor mode: an ARKit scene mesh, and an aerial orthophoto or drone image as a site-plan underlay. Not started. See [docs/roadmap.md](docs/roadmap.md).
+- Device pins on outdoor zones. See [docs/roadmap.md](docs/roadmap.md).

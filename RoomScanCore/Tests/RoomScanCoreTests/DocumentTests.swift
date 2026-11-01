@@ -74,10 +74,10 @@ final class DocumentTests: XCTestCase {
         }
 
         object["format"] = HomeLayoutDocument.formatIdentifier
-        object["version"] = 2
+        object["version"] = 3
         let wrongVersion = try JSONSerialization.data(withJSONObject: object)
         XCTAssertThrowsError(try HomeLayoutDocument.decode(wrongVersion)) { error in
-            guard case HomeLayoutError.unsupportedVersion(2) = error else {
+            guard case HomeLayoutError.unsupportedVersion(3) = error else {
                 return XCTFail("Unexpected error \(error)")
             }
         }

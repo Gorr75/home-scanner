@@ -266,6 +266,7 @@
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you. Scans stay on this device.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Home Scanner uses motion sensors while you walk so the scan stays aligned. Motion data stays on this device.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Home Scanner imports an aerial or drone photo you choose as a site-plan underlay. The image stays on this device.";
 				INFOPLIST_KEY_NSWorldSensingUsageDescription = "Home Scanner measures walls, doors, and windows to build a floor plan on this device.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;
@@ -303,6 +304,7 @@
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you. Scans stay on this device.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Home Scanner uses motion sensors while you walk so the scan stays aligned. Motion data stays on this device.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Home Scanner imports an aerial or drone photo you choose as a site-plan underlay. The image stays on this device.";
 				INFOPLIST_KEY_NSWorldSensingUsageDescription = "Home Scanner measures walls, doors, and windows to build a floor plan on this device.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;

@@ -168,7 +168,7 @@ public struct StructureLink: Codable, Equatable, Sendable {
     }
 }
 
-public struct Home: Codable, Equatable, Identifiable, Sendable {
+public struct Home: Equatable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
     public var createdAt: Date
@@ -176,6 +176,8 @@ public struct Home: Codable, Equatable, Identifiable, Sendable {
     public var rooms: [Room]
     public var pins: [DevicePin]
     public var structure: StructureLink?
+    public var outdoorZones: [OutdoorZone]
+    public var site: Site?
 
     public init(
         id: UUID,
@@ -184,7 +186,9 @@ public struct Home: Codable, Equatable, Identifiable, Sendable {
         updatedAt: Date,
         rooms: [Room],
         pins: [DevicePin],
-        structure: StructureLink? = nil
+        structure: StructureLink? = nil,
+        outdoorZones: [OutdoorZone] = [],
+        site: Site? = nil
     ) {
         self.id = id
         self.name = name
@@ -193,6 +197,8 @@ public struct Home: Codable, Equatable, Identifiable, Sendable {
         self.rooms = rooms
         self.pins = pins
         self.structure = structure
+        self.outdoorZones = outdoorZones
+        self.site = site
     }
 
     public func room(id: UUID) -> Room? {
@@ -222,5 +228,67 @@ public struct Home: Codable, Equatable, Identifiable, Sendable {
     public mutating func deleteRoom(id: UUID) {
         rooms.removeAll { $0.id == id }
         pins.removeAll { $0.roomId == id }
+        site?.placements.removeAll { placement in
+            if case .room(let roomID) = placement.subject {
+                return roomID == id
+            }
+            return false
+        }
+    }
+
+    public mutating func deleteOutdoorZone(id: UUID) {
+        outdoorZones.removeAll { $0.id == id }
+        site?.placements.removeAll { placement in
+            if case .outdoorZone(let zoneID) = placement.subject {
+                return zoneID == id
+            }
+            return false
+        }
+    }
+
+    public func outdoorZone(id: UUID) -> OutdoorZone? {
+        outdoorZones.first { $0.id == id }
+    }
+}
+
+extension Home: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case createdAt
+        case updatedAt
+        case rooms
+        case pins
+        case structure
+        case outdoorZones
+        case site
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        rooms = try container.decode([Room].self, forKey: .rooms)
+        pins = try container.decode([DevicePin].self, forKey: .pins)
+        structure = try container.decodeIfPresent(StructureLink.self, forKey: .structure)
+        outdoorZones = try container.decodeIfPresent([OutdoorZone].self, forKey: .outdoorZones) ?? []
+        site = try container.decodeIfPresent(Site.self, forKey: .site)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(rooms, forKey: .rooms)
+        try container.encode(pins, forKey: .pins)
+        try container.encodeIfPresent(structure, forKey: .structure)
+        if !outdoorZones.isEmpty {
+            try container.encode(outdoorZones, forKey: .outdoorZones)
+        }
+        try container.encodeIfPresent(site, forKey: .site)
     }
 }

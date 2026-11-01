@@ -8,6 +8,7 @@ struct HomeDetailView: View {
     let homeID: UUID
 
     @State private var scanning = false
+    @State private var scanningOutdoor = false
     @State private var combining = false
     @State private var renaming = false
     @State private var renameDraft = ""
@@ -104,6 +105,7 @@ struct HomeDetailView: View {
                     } header: {
                         Text("One floor")
                     }
+                    outdoorSection(home)
                     Section("Devices") {
                         if home.pins.isEmpty {
                             Text("Open a room and place lights, switches, or sensors.")
@@ -132,6 +134,9 @@ struct HomeDetailView: View {
         .toolbar { toolbar }
         .fullScreenCover(isPresented: $scanning) {
             ScanRoomView(homeID: homeID) { scanning = false }
+        }
+        .fullScreenCover(isPresented: $scanningOutdoor) {
+            OutdoorScanView(homeID: homeID)
         }
         .task(id: home?.pins.map { "\($0.id.uuidString)|\($0.entityId ?? "")" }.joined(separator: ",") ?? "") {
             await pinBoard.refresh(pins: home?.pins ?? [])
@@ -213,6 +218,49 @@ struct HomeDetailView: View {
         let deviceText = devices == 1 ? "1 device" : "\(devices) devices"
         let source = room.assets.capturedRoom == nil ? "Drawn plan" : "LiDAR scan"
         return "\(source) · \(deviceText)"
+    }
+
+    @ViewBuilder
+    private func outdoorSection(_ home: Home) -> some View {
+        Section {
+            NavigationLink(value: AppRoute.site(home.id)) {
+                Label("Site plan", systemImage: "map")
+            }
+            ForEach(home.outdoorZones) { zone in
+                NavigationLink(value: AppRoute.outdoor(home: home.id, zone: zone.id)) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(zone.name)
+                        Text("\(zone.kind.label) · \(zone.meshVertexCount) vertices")
+                            .font(.caption)
+                            .foregroundStyle(Theme.secondary)
+                    }
+                }
+                .swipeActions {
+                    Button("Delete", role: .destructive) {
+                        do {
+                            try store.deleteOutdoorZone(homeId: home.id, zoneId: zone.id)
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+            }
+            if OutdoorScanSupport.canScan {
+                Button {
+                    scanningOutdoor = true
+                } label: {
+                    Label("Scan outside", systemImage: "viewfinder")
+                }
+            } else {
+                Text(OutdoorScanSupport.unavailableReason)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.secondary)
+            }
+        } header: {
+            Text("Outside")
+        } footer: {
+            Text("LiDAR mesh reaches about \(Int(OutdoorScanSupport.rangeMeters)) meters. Place rooms and outdoor scans on an aerial or drone photo in the site plan.")
+        }
     }
 
     private func capturedCount(_ home: Home) -> Int {
