@@ -72,7 +72,7 @@ extension View {
 
 enum PreviewStore {
     @MainActor static func make() -> HomeStore {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("RoomScanPreview", isDirectory: true)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("HomeScannerPreview", isDirectory: true)
         let repository = try! HomeRepository(root: root)
         let store = HomeStore(repository: repository)
         if store.home(id: SampleApartment.homeID) == nil {

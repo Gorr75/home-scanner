@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct RoomScanApp: App {
+struct HomeScannerApp: App {
     @State private var store = HomeStore()
     @State private var pinBoard = PinBoard()
 

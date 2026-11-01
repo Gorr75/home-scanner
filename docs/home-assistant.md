@@ -1,6 +1,6 @@
 # Home Assistant layout format
 
-RoomScan does not talk to Home Assistant in this version. It stores the shape of a home and the devices you place in it, and it can export that as one JSON document. A later Home Assistant integration or Lovelace card can read the file. A later app build can fill in live states through the `HomeStateProvider` seam described below.
+Home Scanner does not talk to Home Assistant in this version. It stores the shape of a home and the devices you place in it, and it can export that as one JSON document. A later Home Assistant integration or Lovelace card can read the file. A later app build can fill in live states through the `HomeStateProvider` seam described below.
 
 Nothing in the file is a credential. Do not put a long-lived access token, a base URL password, or any other secret in this JSON.
 
@@ -120,7 +120,7 @@ Present after a multi-room combine, and on the sample apartment.
 
 ## Live state, later
 
-The app talks to device state only through `HomeStateProvider` in `RoomScanCore`:
+The app talks to device state only through `HomeStateProvider` in the `RoomScanCore` package:
 
 ```swift
 func snapshot(for entityId: String) async throws -> EntitySnapshot
@@ -141,7 +141,7 @@ v1 always uses `MockHomeStateProvider`. The screen says the numbers are sample d
 
 Suggested Keychain item, not implemented yet:
 
-- service: `se.jansson.roomscan.homeassistant`
+- service: `se.jansson.homescan.homeassistant`
 - account: `access-token`
 - secret: a Home Assistant long-lived access token
 
@@ -156,3 +156,5 @@ The client should map the protocol onto Home Assistant like this:
 Normalize cover and lock states in that client (`open` / `closed`, `locked` / `unlocked`). The mock does not pretend those domains toggle.
 
 Settings for the base URL and token belong in that future client, not in `home.json`.
+
+The format id stays `roomscan.home`. The app on the home screen is Home Scanner. Outdoor site plans are a later addition and are not part of this file yet. See [roadmap.md](roadmap.md).

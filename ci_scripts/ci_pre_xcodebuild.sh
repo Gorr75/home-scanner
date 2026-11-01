@@ -1,5 +1,5 @@
 #!/bin/sh
-# Xcode Cloud runs this before the RoomScan scheme builds.
+# Xcode Cloud runs this before the HomeScanner scheme builds.
 # The iOS app needs a LiDAR device to scan; these tests cover the model and JSON export.
 set -eu
 cd "$(dirname "$0")/.."

@@ -96,7 +96,7 @@ def usda():
     defaultPrim = "Apartment"
     metersPerUnit = 1
     upAxis = "Y"
-    documentation = "Sample apartment for RoomScan. Coordinates match SampleApartment.swift."
+    documentation = "Sample apartment for Home Scanner. Coordinates match SampleApartment.swift."
 )
 
 def Xform "Apartment"

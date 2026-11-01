@@ -11,7 +11,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A10000000000000000000004 /* RoomScan.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RoomScan.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000004 /* HomeScanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HomeScanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -45,7 +45,7 @@
 		A10000000000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A10000000000000000000004 /* RoomScan.app */,
+				A10000000000000000000004 /* HomeScanner.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -53,9 +53,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A10000000000000000000006 /* RoomScan */ = {
+		A10000000000000000000006 /* HomeScanner */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A1000000000000000000000A /* Build configuration list for PBXNativeTarget "RoomScan" */;
+			buildConfigurationList = A1000000000000000000000A /* Build configuration list for PBXNativeTarget "HomeScanner" */;
 			buildPhases = (
 				A10000000000000000000007 /* Sources */,
 				A10000000000000000000008 /* Frameworks */,
@@ -68,12 +68,12 @@
 			fileSystemSynchronizedGroups = (
 				A10000000000000000000005 /* RoomScan */,
 			);
-			name = RoomScan;
+			name = HomeScanner;
 			packageProductDependencies = (
 				A10000000000000000000011 /* RoomScanCore */,
 			);
-			productName = RoomScan;
-			productReference = A10000000000000000000004 /* RoomScan.app */;
+			productName = HomeScanner;
+			productReference = A10000000000000000000004 /* HomeScanner.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -91,7 +91,7 @@
 					};
 				};
 			};
-			buildConfigurationList = A1000000000000000000000B /* Build configuration list for PBXProject "RoomScan" */;
+			buildConfigurationList = A1000000000000000000000B /* Build configuration list for PBXProject "HomeScanner" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -108,7 +108,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A10000000000000000000006 /* RoomScan */,
+				A10000000000000000000006 /* HomeScanner */,
 			);
 		};
 /* End PBXProject section */
@@ -260,13 +260,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = RoomScan;
+				INFOPLIST_KEY_CFBundleDisplayName = "Home Scanner";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "RoomScan uses the camera and LiDAR to measure the room in front of you. Scans stay on this device.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "RoomScan uses motion sensors while you walk so the scan stays aligned. Motion data stays on this device.";
-				INFOPLIST_KEY_NSWorldSensingUsageDescription = "RoomScan measures walls, doors, and windows to build a floor plan on this device.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you. Scans stay on this device.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Home Scanner uses motion sensors while you walk so the scan stays aligned. Motion data stays on this device.";
+				INFOPLIST_KEY_NSWorldSensingUsageDescription = "Home Scanner measures walls, doors, and windows to build a floor plan on this device.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -277,7 +277,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = se.jansson.roomscan;
+				PRODUCT_BUNDLE_IDENTIFIER = se.jansson.homescan;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -297,13 +297,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = RoomScan;
+				INFOPLIST_KEY_CFBundleDisplayName = "Home Scanner";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "RoomScan uses the camera and LiDAR to measure the room in front of you. Scans stay on this device.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "RoomScan uses motion sensors while you walk so the scan stays aligned. Motion data stays on this device.";
-				INFOPLIST_KEY_NSWorldSensingUsageDescription = "RoomScan measures walls, doors, and windows to build a floor plan on this device.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you. Scans stay on this device.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Home Scanner uses motion sensors while you walk so the scan stays aligned. Motion data stays on this device.";
+				INFOPLIST_KEY_NSWorldSensingUsageDescription = "Home Scanner measures walls, doors, and windows to build a floor plan on this device.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -314,7 +314,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = se.jansson.roomscan;
+				PRODUCT_BUNDLE_IDENTIFIER = se.jansson.homescan;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -328,7 +328,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A1000000000000000000000A /* Build configuration list for PBXNativeTarget "RoomScan" */ = {
+		A1000000000000000000000A /* Build configuration list for PBXNativeTarget "HomeScanner" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A1000000000000000000000E /* Debug */,
@@ -337,7 +337,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A1000000000000000000000B /* Build configuration list for PBXProject "RoomScan" */ = {
+		A1000000000000000000000B /* Build configuration list for PBXProject "HomeScanner" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A1000000000000000000000C /* Debug */,

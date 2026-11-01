@@ -65,7 +65,7 @@ struct HomeListView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.paper)
-        .navigationTitle("RoomScan")
+        .navigationTitle("Home Scanner")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

@@ -9,9 +9,9 @@ extension HomeLayoutError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .unknownFormat(let format):
-            return "This file is \(format), not a RoomScan home."
+            return "This file is \(format), not a Home Scanner layout."
         case .unsupportedVersion(let version):
-            return "This RoomScan home uses format version \(version), which this app does not read."
+            return "This Home Scanner layout uses format version \(version), which this app does not read."
         }
     }
 }

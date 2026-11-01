@@ -156,7 +156,7 @@ public actor MockHomeStateProvider: HomeStateProvider {
 /// and read a long-lived access token from the Keychain account named here.
 /// The token must not be written into the home JSON.
 public struct UnconfiguredHomeAssistantClient: HomeStateProvider, Sendable {
-    public static let keychainService = "se.jansson.roomscan.homeassistant"
+    public static let keychainService = "se.jansson.homescan.homeassistant"
     public static let tokenAccount = "access-token"
 
     public var baseURL: URL?

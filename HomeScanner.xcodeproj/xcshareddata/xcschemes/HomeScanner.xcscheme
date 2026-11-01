@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A10000000000000000000006"
-               BuildableName = "RoomScan.app"
-               BlueprintName = "RoomScan"
-               ReferencedContainer = "container:RoomScan.xcodeproj">
+               BuildableName = "HomeScanner.app"
+               BlueprintName = "HomeScanner"
+               ReferencedContainer = "container:HomeScanner.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -46,9 +46,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A10000000000000000000006"
-            BuildableName = "RoomScan.app"
-            BlueprintName = "RoomScan"
-            ReferencedContainer = "container:RoomScan.xcodeproj">
+            BuildableName = "HomeScanner.app"
+            BlueprintName = "HomeScanner"
+            ReferencedContainer = "container:HomeScanner.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -63,9 +63,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A10000000000000000000006"
-            BuildableName = "RoomScan.app"
-            BlueprintName = "RoomScan"
-            ReferencedContainer = "container:RoomScan.xcodeproj">
+            BuildableName = "HomeScanner.app"
+            BlueprintName = "HomeScanner"
+            ReferencedContainer = "container:HomeScanner.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

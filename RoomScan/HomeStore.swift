@@ -25,9 +25,9 @@ final class HomeStore {
             return
         }
         let emergency = FileManager.default.temporaryDirectory
-            .appendingPathComponent("RoomScanHomes", isDirectory: true)
+            .appendingPathComponent("HomeScannerHomes", isDirectory: true)
         guard let repository = try? HomeRepository(root: emergency) else {
-            fatalError("RoomScan could not create a folder for saved homes.")
+            fatalError("Home Scanner could not create a folder for saved homes.")
         }
         self.init(repository: repository)
         loadError = "Homes could not be stored in Documents, so this session is using a temporary folder."
