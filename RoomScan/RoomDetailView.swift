@@ -56,6 +56,7 @@ struct RoomDetailView: View {
                         model(home, room: room)
                     case .plan:
                         plan(room)
+                        measurementLine(room)
                     case .objects:
                         objectList(room)
                     case .devices:
@@ -314,6 +315,7 @@ struct RoomDetailView: View {
                 Button("Send to Home Assistant") { sendToHomeAssistant() }
                     .disabled(sending)
                 Button("Share a .zip") { shareZip() }
+                Button("Floor plan PDF") { sharePDF() }
                 Button("Open in Home Assistant") { openCompanion() }
                 Button("Export layout JSON") { shareJSON() }
                 Button("Share USDZ") { shareModel() }
@@ -407,6 +409,27 @@ struct RoomDetailView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func measurementLine(_ room: Room) -> some View {
+        let summary = MeasurementMath.summarize(room.floorPlan)
+        let doors = summary.doorWidths.map { "\(MeasurementMath.meters($0)) m" }.joined(separator: ", ")
+        let doorText = doors.isEmpty ? "no doors" : "doors \(doors)"
+        return Text("\(MeasurementMath.squareMeters(summary.floorArea)) · walls \(MeasurementMath.meters(summary.wallLength)) m · \(doorText)")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(Theme.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+    }
+
+    private func sharePDF() {
+        guard let home else { return }
+        do {
+            SharePresenter.present(url: try FloorPlanPDF.fileURL(for: home))
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

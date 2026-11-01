@@ -202,6 +202,7 @@ struct HomeDetailView: View {
                 Button("Send to Home Assistant") { sendToHomeAssistant() }
                     .disabled(sending)
                 Button("Share a .zip") { shareZip() }
+                Button("Floor plan PDF") { sharePDF() }
                 Button("Open in Home Assistant") { openCompanion() }
                 Button("Export layout JSON") { shareJSON() }
                 Button("Share 3D model") { shareModel() }
@@ -318,6 +319,15 @@ struct HomeDetailView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func sharePDF() {
+        guard let home else { return }
+        do {
+            SharePresenter.present(url: try FloorPlanPDF.fileURL(for: home))
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
