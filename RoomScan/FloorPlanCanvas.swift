@@ -10,6 +10,7 @@ struct FloorPlanCanvas: View {
     var pinCaptions: [UUID: String] = [:]
     var pinStates: [UUID: String] = [:]
     var changes: [ObjectChange] = []
+    var heatSamples: [HeatSample] = []
     var interactive: Bool = true
     var onSelectPin: (UUID?) -> Void = { _ in }
     var onMovePin: (UUID, Double, Double) -> Void = { _, _, _ in }
@@ -40,6 +41,7 @@ struct FloorPlanCanvas: View {
             let projector = adjusted(fitted)
             let canvas = Canvas { context, size in
                 drawGrid(in: context, projector: projector, bounds: bounds, size: size)
+                drawHeat(in: context, projector: projector, bounds: bounds)
                 for layer in layers {
                     drawFloor(layer, in: context, projector: projector)
                 }
@@ -177,6 +179,38 @@ struct FloorPlanCanvas: View {
             return Vec3(x: movedDisplay.x, y: pin.position.y, z: movedDisplay.z)
         }
         return PlanLayers.displayPosition(of: pin, in: layers)
+    }
+
+    private func drawHeat(in context: GraphicsContext, projector: PlanProjector, bounds: AABB) {
+        guard let span = Heatmap.range(of: heatSamples) else { return }
+        let cells = Heatmap.grid(samples: heatSamples, bounds: bounds, columns: 18, rows: 18)
+        let columnCount = cells.first?.count ?? 0
+        guard columnCount > 0 else { return }
+        let rowCount = cells.count
+        for (row, line) in cells.enumerated() {
+            for (column, value) in line.enumerated() {
+                guard let value else { continue }
+                let x0 = bounds.min.x + Double(column) / Double(columnCount) * bounds.size.x
+                let x1 = bounds.min.x + Double(column + 1) / Double(columnCount) * bounds.size.x
+                let z0 = bounds.min.z + Double(row) / Double(rowCount) * bounds.size.z
+                let z1 = bounds.min.z + Double(row + 1) / Double(rowCount) * bounds.size.z
+                let origin = point(projector.screen(x: x0, z: z0))
+                let opposite = point(projector.screen(x: x1, z: z1))
+                let rect = CGRect(
+                    x: min(origin.x, opposite.x),
+                    y: min(origin.y, opposite.y),
+                    width: abs(opposite.x - origin.x),
+                    height: abs(opposite.y - origin.y)
+                )
+                context.fill(Path(rect), with: .color(heatColor(value, span: span)))
+            }
+        }
+    }
+
+    private func heatColor(_ value: Double, span: (min: Double, max: Double)) -> Color {
+        let width = span.max - span.min
+        let t = width < 0.0001 ? 0.5 : min(1, max(0, (value - span.min) / width))
+        return Color(red: t, green: 0.35 * (1 - abs(t - 0.5) * 2), blue: 1 - t).opacity(0.42)
     }
 
     private func drawGrid(in context: GraphicsContext, projector: PlanProjector, bounds: AABB, size: CGSize) {

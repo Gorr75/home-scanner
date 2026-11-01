@@ -26,6 +26,7 @@ struct RoomDetailView: View {
     @State private var uploadedMessage = ""
     @State private var rescanning = false
     @State private var compareRoomID: UUID?
+    @State private var showHeat = false
     @Environment(\.dismiss) private var dismiss
 
     private enum Page: String, CaseIterable, Identifiable {
@@ -165,6 +166,7 @@ struct RoomDetailView: View {
             placing: placing,
             pinCaptions: pinBoard.captions(for: pins),
             pinStates: pinBoard.states(for: pins),
+            heatSamples: showHeat ? heatSamples(in: room) : [],
             onSelectPin: { selectedPinID = $0 },
             onMovePin: { id, x, z in move(id, x: x, z: z) },
             onCreate: { x, z in
@@ -320,6 +322,7 @@ struct RoomDetailView: View {
                     addAtCenter()
                 }
                 Divider()
+                Button(showHeat ? "Hide sensor heatmap" : "Show sensor heatmap") { showHeat.toggle() }
                 if LiDARSupport.canScan {
                     Button("Re-scan this room") { rescanning = true }
                 }
@@ -430,6 +433,13 @@ struct RoomDetailView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func heatSamples(in room: Room) -> [HeatSample] {
+        pins.compactMap { pin in
+            guard let state = pinBoard.snapshot(for: pin)?.state, let value = Double(state) else { return nil }
+            return HeatSample(x: pin.position.x, z: pin.position.z, value: value)
         }
     }
 
