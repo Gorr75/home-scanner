@@ -98,4 +98,42 @@ final class RepositoryTests: XCTestCase {
         try reloaded.deleteHome(id: home.id)
         XCTAssertTrue(try HomeRepository(root: root).homes.isEmpty)
     }
+
+    func testReplaceRoomKeepsPinsAndClearsStructure() throws {
+        let repo = try HomeRepository(root: root)
+        let home = try repo.createHome(named: "Loft")
+        let withRoom = try repo.addRoom(
+            homeId: home.id,
+            name: "Studio",
+            floorPlan: .empty,
+            capturedJSON: Data("old".utf8),
+            usdz: Data("old-model".utf8)
+        )
+        let roomId = try XCTUnwrap(withRoom.rooms.first?.id)
+        var pinned = withRoom
+        pinned.upsertPin(DevicePin.placed(in: roomId, kind: .light, x: 1, z: 1, name: "Lamp"))
+        _ = try repo.save(pinned)
+        _ = try repo.attachStructure(
+            homeId: home.id,
+            capturedJSON: Data("{}".utf8),
+            usdz: Data("shell".utf8),
+            overview: FloorPlan(),
+            roomIds: [roomId]
+        )
+        let plan = SampleApartment.make().room(id: SampleApartment.kitchenID)!.floorPlan
+        let replaced = try repo.replaceRoom(
+            homeId: home.id,
+            roomId: roomId,
+            floorPlan: plan,
+            capturedJSON: Data("new".utf8),
+            usdz: Data("new-model".utf8)
+        )
+        let room = try XCTUnwrap(replaced.room(id: roomId))
+        XCTAssertEqual(room.name, "Studio")
+        XCTAssertEqual(room.floorPlan.objects.count, plan.objects.count)
+        XCTAssertEqual(replaced.pins.count, 1)
+        XCTAssertNil(replaced.structure)
+        let captured = try Data(contentsOf: repo.fileURL(homeId: home.id, relative: try XCTUnwrap(room.assets.capturedRoom)))
+        XCTAssertEqual(captured, Data("new".utf8))
+    }
 }

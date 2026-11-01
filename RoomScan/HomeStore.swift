@@ -89,6 +89,25 @@ final class HomeStore {
     }
 
     @discardableResult
+    func replaceCapturedRoom(
+        homeId: UUID,
+        roomId: UUID,
+        floorPlan: FloorPlan,
+        capturedJSON: Data,
+        usdz: Data
+    ) throws -> Home {
+        let home = try repository.replaceRoom(
+            homeId: homeId,
+            roomId: roomId,
+            floorPlan: floorPlan,
+            capturedJSON: capturedJSON,
+            usdz: usdz
+        )
+        refresh()
+        return home
+    }
+
+    @discardableResult
     func attachStructure(
         homeId: UUID,
         capturedJSON: Data,

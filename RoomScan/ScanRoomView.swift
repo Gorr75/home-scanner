@@ -8,11 +8,13 @@ struct ScanRoomView: View {
     @StateObject private var session = ScanSessionController()
 
     let homeID: UUID
+    var replacingRoomID: UUID? = nil
     var onSaved: () -> Void
 
     @State private var roomName = ""
     @State private var saving = false
     @State private var saveError: String?
+    @State private var pendingReplace: PendingReplace?
 
     private var roomCount: Int {
         store.home(id: homeID)?.rooms.count ?? 0
@@ -145,6 +147,9 @@ struct ScanRoomView: View {
             } message: {
                 Text(saveError ?? "")
             }
+            .sheet(item: $pendingReplace) { pending in
+                replaceSheet(pending)
+            }
         }
         .onAppear {
             if roomName.isEmpty {
@@ -165,6 +170,17 @@ struct ScanRoomView: View {
                 let plan = FloorPlanExtractor.floorPlan(from: room)
                 let json = try ScanArchive.encodeRoom(room)
                 let usdz = try ScanArchive.usdzData(for: room)
+                if let replacingRoomID,
+                   let previous = store.home(id: homeID)?.room(id: replacingRoomID)?.floorPlan {
+                    pendingReplace = PendingReplace(
+                        plan: plan,
+                        json: json,
+                        usdz: usdz,
+                        diff: ScanDiff.compare(previous: previous, current: plan)
+                    )
+                    saving = false
+                    return
+                }
                 _ = try store.addCapturedRoom(
                     homeId: homeID,
                     name: name,
@@ -181,9 +197,76 @@ struct ScanRoomView: View {
         }
     }
 
+    private func replaceSheet(_ pending: PendingReplace) -> some View {
+        let counts = ScanDiff.counts(pending.diff)
+        return NavigationStack {
+            VStack(spacing: 0) {
+                FloorPlanCanvas(
+                    layers: [PlanLayer(id: replacingRoomID ?? UUID(), name: roomName, plan: pending.plan, offset: .zero, tintIndex: 0)],
+                    pins: [],
+                    showPins: false,
+                    selectedPinID: nil,
+                    placing: false,
+                    changes: pending.diff
+                )
+                List {
+                    Section {
+                        Text("\(counts.added) added · \(counts.removed) removed · \(counts.moved) moved")
+                    }
+                    ForEach(pending.diff.filter { change in
+                        if case .unchanged = change.kind { return false }
+                        return true
+                    }) { change in
+                        Text(change.summary)
+                    }
+                }
+                .scrollContentBackground(.hidden)
+            }
+            .navigationTitle("What changed")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Discard") { pendingReplace = nil }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Replace room") { commitReplace(pending) }
+                        .disabled(saving)
+                }
+            }
+        }
+    }
+
+    private func commitReplace(_ pending: PendingReplace) {
+        guard let replacingRoomID else { return }
+        saving = true
+        do {
+            _ = try store.replaceCapturedRoom(
+                homeId: homeID,
+                roomId: replacingRoomID,
+                floorPlan: pending.plan,
+                capturedJSON: pending.json,
+                usdz: pending.usdz
+            )
+            pendingReplace = nil
+            onSaved()
+            dismiss()
+        } catch {
+            saveError = error.localizedDescription
+            saving = false
+        }
+    }
+
     private static let suggestions = [
         "Kitchen", "Living room", "Bedroom", "Bathroom", "Hallway", "Office", "Dining room", "Entry"
     ]
+}
+
+private struct PendingReplace: Identifiable {
+    let id = UUID()
+    var plan: FloorPlan
+    var json: Data
+    var usdz: Data
+    var diff: [ObjectChange]
 }
 
 private struct RoomCaptureRepresentable: UIViewRepresentable {

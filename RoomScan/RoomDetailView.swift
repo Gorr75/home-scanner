@@ -24,6 +24,8 @@ struct RoomDetailView: View {
     @State private var showSettings = false
     @State private var showUploaded = false
     @State private var uploadedMessage = ""
+    @State private var rescanning = false
+    @State private var compareRoomID: UUID?
     @Environment(\.dismiss) private var dismiss
 
     private enum Page: String, CaseIterable, Identifiable {
@@ -113,6 +115,17 @@ struct RoomDetailView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: Binding(
+            get: { compareRoomID != nil },
+            set: { if !$0 { compareRoomID = nil } }
+        )) {
+            if let compareRoomID {
+                compareSheet(compareRoomID)
+            }
+        }
+        .fullScreenCover(isPresented: $rescanning) {
+            ScanRoomView(homeID: homeID, replacingRoomID: roomID) { rescanning = false }
         }
         .overlay {
             if sending {
@@ -307,6 +320,14 @@ struct RoomDetailView: View {
                     addAtCenter()
                 }
                 Divider()
+                if LiDARSupport.canScan {
+                    Button("Re-scan this room") { rescanning = true }
+                }
+                if (home?.rooms.count ?? 0) > 1 {
+                    Button("Compare with another scan") {
+                        compareRoomID = home?.rooms.first { $0.id != roomID }?.id
+                    }
+                }
                 Button("Rename room") {
                     renameDraft = room?.name ?? ""
                     renaming = true
@@ -408,6 +429,54 @@ struct RoomDetailView: View {
                 }
             } catch {
                 errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func compareSheet(_ otherID: UUID) -> some View {
+        let current = room
+        let other = home?.room(id: otherID)
+        let diff = ScanDiff.compare(
+            previous: other?.floorPlan ?? .empty,
+            current: current?.floorPlan ?? .empty
+        )
+        let counts = ScanDiff.counts(diff)
+        return NavigationStack {
+            VStack(spacing: 0) {
+                if let current {
+                    FloorPlanCanvas(
+                        layers: PlanLayers.single(current),
+                        pins: [],
+                        showPins: false,
+                        selectedPinID: nil,
+                        placing: false,
+                        changes: diff
+                    )
+                }
+                List {
+                    Picker("Compare with", selection: $compareRoomID) {
+                        ForEach(home?.rooms.filter { $0.id != roomID } ?? []) { otherRoom in
+                            Text(otherRoom.name).tag(Optional(otherRoom.id))
+                        }
+                    }
+                    Text("\(counts.added) added · \(counts.removed) removed · \(counts.moved) moved. Green is new, amber moved, dashed red removed.")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.secondary)
+                    ForEach(diff.filter { change in
+                        if case .unchanged = change.kind { return false }
+                        return true
+                    }) { change in
+                        Text(change.summary)
+                    }
+                }
+                .scrollContentBackground(.hidden)
+            }
+            .navigationTitle("Scan diff")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { compareRoomID = nil }
+                }
             }
         }
     }

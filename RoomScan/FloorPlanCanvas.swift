@@ -9,6 +9,7 @@ struct FloorPlanCanvas: View {
     var placing: Bool
     var pinCaptions: [UUID: String] = [:]
     var pinStates: [UUID: String] = [:]
+    var changes: [ObjectChange] = []
     var interactive: Bool = true
     var onSelectPin: (UUID?) -> Void = { _ in }
     var onMovePin: (UUID, Double, Double) -> Void = { _, _, _ in }
@@ -227,8 +228,12 @@ struct FloorPlanCanvas: View {
                 path.addLine(to: point(projector.screen(x: corner.x, z: corner.z)))
             }
             path.closeSubpath()
-            context.fill(path, with: .color(Theme.ink.opacity(0.08)))
-            context.stroke(path, with: .color(Theme.ink.opacity(0.35)), lineWidth: 1)
+            context.fill(path, with: .color(Theme.ink.opacity(changeFill(object.id))))
+            context.stroke(
+                path,
+                with: .color(changeStroke(object.id)),
+                style: StrokeStyle(lineWidth: changeLineWidth(object.id), dash: changeDash(object.id))
+            )
             let anchor = shifted(object.center, by: layer.offset)
             let screen = point(projector.screen(x: anchor.x, z: anchor.z))
             context.draw(
@@ -238,6 +243,50 @@ struct FloorPlanCanvas: View {
                 at: screen
             )
         }
+        for change in changes {
+            guard case .removed = change.kind else { continue }
+            let corners = change.object.footprint.map { shifted($0, by: layer.offset) }
+            guard corners.count >= 3 else { continue }
+            var path = Path()
+            path.move(to: point(projector.screen(x: corners[0].x, z: corners[0].z)))
+            for corner in corners.dropFirst() {
+                path.addLine(to: point(projector.screen(x: corner.x, z: corner.z)))
+            }
+            path.closeSubpath()
+            context.stroke(path, with: .color(Theme.warn), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+        }
+    }
+
+    private func changeFill(_ id: UUID) -> Color {
+        switch changeKind(id) {
+        case .added: return Color(red: 0.18, green: 0.55, blue: 0.32).opacity(0.25)
+        case .moved: return Theme.warn.opacity(0.2)
+        case .removed, .unchanged: return Theme.ink.opacity(0.08)
+        }
+    }
+
+    private func changeStroke(_ id: UUID) -> Color {
+        switch changeKind(id) {
+        case .added: return Color(red: 0.18, green: 0.55, blue: 0.32)
+        case .moved: return Theme.warn
+        case .removed, .unchanged: return Theme.ink.opacity(0.35)
+        }
+    }
+
+    private func changeLineWidth(_ id: UUID) -> CGFloat {
+        switch changeKind(id) {
+        case .added, .moved: return 2
+        case .removed, .unchanged: return 1
+        }
+    }
+
+    private func changeDash(_ id: UUID) -> [CGFloat] {
+        if case .moved = changeKind(id) { return [5, 3] }
+        return []
+    }
+
+    private func changeKind(_ id: UUID) -> ObjectChange.Kind {
+        changes.first { $0.object.id == id }?.kind ?? .unchanged
     }
 
     private func drawWalls(_ layer: PlanLayer, in context: GraphicsContext, projector: PlanProjector) {

@@ -2,6 +2,7 @@ import Foundation
 
 public enum HomeRepositoryError: Error, Equatable, Sendable {
     case missingHome(UUID)
+    case missingRoom(UUID)
     case unsafePath(String)
     case unreadable(String)
 }
@@ -11,6 +12,8 @@ extension HomeRepositoryError: LocalizedError {
         switch self {
         case .missingHome:
             return "That home is no longer on this device."
+        case .missingRoom:
+            return "That room is no longer on this device."
         case .unsafePath(let path):
             return "Refused to use the path \(path)."
         case .unreadable(let name):
@@ -156,8 +159,7 @@ public final class HomeRepository {
         let structureIncludedRoom = home.structure?.roomIds.contains(roomId) == true
         home.deleteRoom(id: roomId)
         if structureIncludedRoom {
-            try? removeFile(homeId: homeId, relative: "structure.usdz")
-            try? removeFile(homeId: homeId, relative: "structure.captured.json")
+            clearStructureFiles(homeId: homeId)
             home.structure = nil
         }
         return try save(home, now: now)
@@ -188,6 +190,45 @@ public final class HomeRepository {
             capturedStructure: jsonRelative,
             overviewFloorPlan: overview
         )
+        return try save(home, now: now)
+    }
+
+    /// Replaces one room's measured plan and sidecars. The room id, name, and pins stay.
+    /// A merged floor that included the room is cleared, because the shell no longer matches.
+    @discardableResult
+    public func replaceRoom(
+        homeId: UUID,
+        roomId: UUID,
+        floorPlan: FloorPlan,
+        capturedJSON: Data?,
+        usdz: Data?,
+        now: Date = Date()
+    ) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        guard let index = home.rooms.firstIndex(where: { $0.id == roomId }) else {
+            throw HomeRepositoryError.missingRoom(roomId)
+        }
+        var room = home.rooms[index]
+        var assets = room.assets
+        if let capturedJSON {
+            let relative = assets.capturedRoom ?? "rooms/\(roomId.uuidString).captured.json"
+            try write(capturedJSON, homeId: homeId, relative: relative)
+            assets.capturedRoom = relative
+        }
+        if let usdz {
+            let relative = assets.usdz ?? "rooms/\(roomId.uuidString).usdz"
+            try write(usdz, homeId: homeId, relative: relative)
+            assets.usdz = relative
+        }
+        room.floorPlan = floorPlan
+        room.assets = assets
+        home.rooms[index] = room
+        if home.structure?.roomIds.contains(roomId) == true {
+            clearStructureFiles(homeId: homeId)
+            home.structure = nil
+        }
         return try save(home, now: now)
     }
 
@@ -256,6 +297,16 @@ public final class HomeRepository {
             withIntermediateDirectories: true
         )
         try data.write(to: url, options: .atomic)
+    }
+
+    private func clearStructureFiles(homeId: UUID) {
+        for relative in ["structure.usdz", "structure.captured.json"] {
+            do {
+                try removeFile(homeId: homeId, relative: relative)
+            } catch {
+                continue
+            }
+        }
     }
 
     private func removeFile(homeId: UUID, relative: String) throws {
