@@ -104,7 +104,7 @@ struct RoomModelView: UIViewRepresentable {
         let coordinates = paint.corners.map { CGPoint(x: $0.x, y: 1 - $0.y) }
         let vertexSource = SCNGeometrySource(vertices: vertices)
         let uvSource = SCNGeometrySource(textureCoordinates: coordinates)
-        var indices: [UInt32] = [0, 1, 2, 0, 2, 3]
+        let indices: [UInt32] = [0, 1, 2, 0, 2, 3]
         let indexData = indices.withUnsafeBufferPointer { Data(buffer: $0) }
         let element = SCNGeometryElement(data: indexData, primitiveType: .triangles, primitiveCount: 2, bytesPerIndex: 4)
         let geometry = SCNGeometry(sources: [vertexSource, uvSource], elements: [element])

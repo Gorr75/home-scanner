@@ -119,12 +119,12 @@ struct HomeViewer: View {
                 placementEnabled: placing && showsPins(home),
                 cameraToken: cameraToken,
                 onSelectPin: { selectedPinID = $0 },
-                surfacePaints: TexturePaints.forHome(home, store: store),
                 onPlace: { point in
                     let height = point.y < 0.25 ? placeKind.defaultHeight : point.y
                     create(in: home, x: point.x, z: point.z, y: height)
                 },
-                onRenderedUSDZ: { renderedUSDZ = $0 }
+                onRenderedUSDZ: { renderedUSDZ = $0 },
+                surfacePaints: TexturePaints.forHome(home, store: store)
             )
         }
     }

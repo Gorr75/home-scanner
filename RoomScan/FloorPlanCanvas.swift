@@ -262,7 +262,7 @@ struct FloorPlanCanvas: View {
                 path.addLine(to: point(projector.screen(x: corner.x, z: corner.z)))
             }
             path.closeSubpath()
-            context.fill(path, with: .color(Theme.ink.opacity(changeFill(object.id))))
+            context.fill(path, with: .color(changeFill(object.id)))
             context.stroke(
                 path,
                 with: .color(changeStroke(object.id)),
