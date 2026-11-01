@@ -18,11 +18,14 @@ final class HomeAssistantSettings {
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
+        let storedURL = defaults.string(forKey: Self.baseURLDefaultsKey) ?? ""
+        let storedToken = KeychainTokenStore.read() ?? ""
         self.defaults = defaults
-        baseURLText = defaults.string(forKey: Self.baseURLDefaultsKey) ?? ""
-        token = KeychainTokenStore.read() ?? ""
-        hasToken = !token.isEmpty
+        baseURLText = storedURL
+        token = storedToken
+        hasToken = !storedToken.isEmpty
         generation = 0
+        catalogError = nil
     }
 
     var isConfigured: Bool { endpoint != nil }
