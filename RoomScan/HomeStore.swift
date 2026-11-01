@@ -89,6 +89,25 @@ final class HomeStore {
     }
 
     @discardableResult
+    func replaceCapturedRoom(
+        homeId: UUID,
+        roomId: UUID,
+        floorPlan: FloorPlan,
+        capturedJSON: Data,
+        usdz: Data
+    ) throws -> Home {
+        let home = try repository.replaceRoom(
+            homeId: homeId,
+            roomId: roomId,
+            floorPlan: floorPlan,
+            capturedJSON: capturedJSON,
+            usdz: usdz
+        )
+        refresh()
+        return home
+    }
+
+    @discardableResult
     func attachStructure(
         homeId: UUID,
         capturedJSON: Data,
@@ -130,6 +149,80 @@ final class HomeStore {
     func existingFile(homeId: UUID, relative: String?) -> URL? {
         guard let relative, let url = try? fileURL(homeId: homeId, relative: relative) else { return nil }
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    func textureLibrary(homeId: UUID) -> TextureLibrary {
+        repository.textures(homeId: homeId)
+    }
+
+    func saveTextures(_ library: TextureLibrary, homeId: UUID) throws {
+        try repository.saveTextures(library, homeId: homeId)
+    }
+
+    func writeTextureImage(homeId: UUID, relative: String, data: Data) throws {
+        try repository.writeTextureImage(homeId: homeId, relative: relative, data: data)
+    }
+
+    func removeTextureFile(homeId: UUID, relative: String) {
+        repository.removeTextureFile(homeId: homeId, relative: relative)
+    }
+
+    func installScanFrames(
+        _ frames: [(id: UUID, jpeg: Data, pose: ScanCameraPose)],
+        plan: FloorPlan,
+        homeId: UUID
+    ) throws {
+        let assigned = TextureProjection.assign(photos: frames.map { ($0.id, $0.pose) }, plan: plan)
+        guard !assigned.isEmpty else { return }
+        var library = repository.textures(homeId: homeId)
+        for frame in frames {
+            guard let surfaceId = assigned[frame.id],
+                  let wall = plan.walls.first(where: { $0.id == surfaceId }),
+                  let corners = TextureProjection.suggestCorners(wall: wall, pose: frame.pose) else {
+                continue
+            }
+            let relative = "textures/\(frame.id.uuidString).jpg"
+            try writeTextureImage(homeId: homeId, relative: relative, data: frame.jpeg)
+            library.photos.removeAll { $0.surfaceId == surfaceId }
+            library.photos.append(
+                SurfaceTexture(
+                    id: frame.id,
+                    surfaceId: surfaceId,
+                    kind: .wall,
+                    imagePath: relative,
+                    corners: corners,
+                    pose: frame.pose
+                )
+            )
+        }
+        try saveTextures(library, homeId: homeId)
+    }
+
+    func textureData(homeId: UUID, relative: String) -> Data? {
+        repository.textureData(homeId: homeId, relative: relative)
+    }
+
+    func appliedTextures(in home: Home) -> [AppliedTexture] {
+        repository.textures(homeId: home.id).photos.compactMap { photo in
+            guard photo.corners.count == 4, let jpeg = repository.textureData(homeId: home.id, relative: photo.imagePath) else {
+                return nil
+            }
+            return AppliedTexture(surfaceId: photo.surfaceId, jpeg: jpeg, corners: photo.corners)
+        }
+    }
+
+    func usdzFiles(in home: Home) -> [String: Data] {
+        var files: [String: Data] = [:]
+        let paths = home.rooms.compactMap(\.assets.usdz) + [home.structure?.usdz].compactMap { $0 }
+        for relative in paths {
+            guard let url = existingFile(homeId: home.id, relative: relative) else { continue }
+            do {
+                files[relative] = try Data(contentsOf: url)
+            } catch {
+                continue
+            }
+        }
+        return files
     }
 
     func structureModelURL(in home: Home) -> URL? {

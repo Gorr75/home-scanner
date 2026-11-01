@@ -15,6 +15,7 @@ struct HomeViewer: View {
     @State private var renderedUSDZ = false
     @State private var cameraToken = 0
     @State private var errorMessage: String?
+    @State private var showHeat = false
 
     private var home: Home? { store.home(id: homeID) }
 
@@ -43,6 +44,11 @@ struct HomeViewer: View {
                             }
                         }
                         Button(placing ? "Stop placing" : "Place a device") { placing.toggle() }
+                        if showsPlan {
+                            Button(showHeat ? "Hide sensor heatmap" : "Show sensor heatmap") {
+                                showHeat.toggle()
+                            }
+                        }
                         Button("Reset camera") { cameraToken += 1 }
                             .disabled(showsPlan)
                     } label: {
@@ -94,6 +100,9 @@ struct HomeViewer: View {
                 showPins: showsPins(home),
                 selectedPinID: selectedPinID,
                 placing: placing && showsPins(home),
+                pinCaptions: pinBoard.captions(for: home.pins),
+                pinStates: pinBoard.states(for: home.pins),
+                heatSamples: showHeat ? heatSamples(for: home) : [],
                 onSelectPin: { selectedPinID = $0 },
                 onMovePin: { id, x, z in move(id, x: x, z: z) },
                 onCreate: { x, z in create(in: home, x: x, z: z, y: placeKind.defaultHeight) }
@@ -105,10 +114,12 @@ struct HomeViewer: View {
                 pins: home.pins,
                 showPins: showsPins(home),
                 stateByEntity: pinBoard.stateMap(for: home.pins),
+                captionByPin: pinBoard.captions(for: home.pins),
                 selectedPinID: selectedPinID,
                 placementEnabled: placing && showsPins(home),
                 cameraToken: cameraToken,
                 onSelectPin: { selectedPinID = $0 },
+                surfacePaints: TexturePaints.forHome(home, store: store),
                 onPlace: { point in
                     let height = point.y < 0.25 ? placeKind.defaultHeight : point.y
                     create(in: home, x: point.x, z: point.z, y: height)
@@ -137,6 +148,9 @@ struct HomeViewer: View {
             return "Rooms are side by side because each scan has its own origin. Combine them after scanning through a shared door."
         }
         if showsPlan {
+            if showHeat {
+                return "Heatmap blends numeric sensor readings, such as temperature or signal level, across the pins."
+            }
             return placing ? "Tap the plan to place a \(placeKind.label.lowercased()). Drag a dot to move it." : "Drag the plan to pan. Pinch to zoom. Drag a device to move it."
         }
         if renderedUSDZ {
@@ -166,6 +180,15 @@ struct HomeViewer: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(Theme.card)
+    }
+
+    private func heatSamples(for home: Home) -> [HeatSample] {
+        let layers = layers(home)
+        return home.pins.compactMap { pin in
+            guard let state = pinBoard.snapshot(for: pin)?.state, let value = Double(state) else { return nil }
+            let world = PlanLayers.displayPosition(of: pin, in: layers)
+            return HeatSample(x: world.x, z: world.z, value: value)
+        }
     }
 
     private func create(in home: Home, x: Double, z: Double, y: Double) {

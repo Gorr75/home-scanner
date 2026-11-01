@@ -4,6 +4,7 @@ import RoomScanCore
 struct RoomDetailView: View {
     @Environment(HomeStore.self) private var store
     @Environment(PinBoard.self) private var pinBoard
+    @Environment(HomeAssistantSettings.self) private var assistant
 
     let homeID: UUID
     let roomID: UUID
@@ -19,11 +20,20 @@ struct RoomDetailView: View {
     @State private var renameDraft = ""
     @State private var confirmingDelete = false
     @State private var errorMessage: String?
+    @State private var sending = false
+    @State private var showSettings = false
+    @State private var showUploaded = false
+    @State private var uploadedMessage = ""
+    @State private var rescanning = false
+    @State private var compareRoomID: UUID?
+    @State private var showHeat = false
+    @State private var texturing = false
     @Environment(\.dismiss) private var dismiss
 
     private enum Page: String, CaseIterable, Identifiable {
         case model = "Model"
         case plan = "Plan"
+        case objects = "Objects"
         case devices = "Devices"
         var id: String { rawValue }
     }
@@ -50,6 +60,9 @@ struct RoomDetailView: View {
                         model(home, room: room)
                     case .plan:
                         plan(room)
+                        measurementLine(room)
+                    case .objects:
+                        objectList(room)
                     case .devices:
                         deviceList
                     }
@@ -96,6 +109,36 @@ struct RoomDetailView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .alert("Sent to Home Assistant", isPresented: $showUploaded) {
+            Button("Open Home Assistant") { openCompanion() }
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(uploadedMessage)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
+        .sheet(isPresented: Binding(
+            get: { compareRoomID != nil },
+            set: { if !$0 { compareRoomID = nil } }
+        )) {
+            if let compareRoomID {
+                compareSheet(compareRoomID)
+            }
+        }
+        .fullScreenCover(isPresented: $rescanning) {
+            ScanRoomView(homeID: homeID, replacingRoomID: roomID) { rescanning = false }
+        }
+        .sheet(isPresented: $texturing) {
+            TextureStudioView(homeID: homeID, roomID: roomID)
+        }
+        .overlay {
+            if sending {
+                ProgressView("Sending to Home Assistant")
+                    .padding(20)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+        }
     }
 
     private func model(_ home: Home, room: Room) -> some View {
@@ -106,12 +149,14 @@ struct RoomDetailView: View {
                 pins: pins,
                 showPins: true,
                 stateByEntity: pinBoard.stateMap(for: pins),
+                captionByPin: pinBoard.captions(for: pins),
                 selectedPinID: selectedPinID,
                 placementEnabled: placing,
                 cameraToken: cameraToken,
                 onSelectPin: { selectedPinID = $0 },
                 onPlace: { place(at: $0, in: room) },
-                onRenderedUSDZ: { renderedUSDZ = $0 }
+                onRenderedUSDZ: { renderedUSDZ = $0 },
+                surfacePaints: TexturePaints.forRoom(room, homeId: homeID, store: store)
             )
             caption(room)
         }
@@ -124,12 +169,41 @@ struct RoomDetailView: View {
             showPins: true,
             selectedPinID: selectedPinID,
             placing: placing,
+            pinCaptions: pinBoard.captions(for: pins),
+            pinStates: pinBoard.states(for: pins),
+            heatSamples: showHeat ? heatSamples(in: room) : [],
             onSelectPin: { selectedPinID = $0 },
             onMovePin: { id, x, z in move(id, x: x, z: z) },
             onCreate: { x, z in
                 create(in: roomID, x: x, z: z, y: placeKind.defaultHeight)
             }
         )
+    }
+
+    private func objectList(_ room: Room) -> some View {
+        List {
+            if room.floorPlan.objects.isEmpty {
+                ContentUnavailableView(
+                    "No furniture recognized",
+                    systemImage: "cube",
+                    description: Text("RoomPlan names sofas, tables, and appliances when the scan can see them.")
+                )
+            }
+            ForEach(room.floorPlan.objects) { object in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ObjectLabels.title(for: object.category))
+                    Text(ObjectLabels.size(object))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Theme.secondary)
+                    if let confidence = object.confidence {
+                        Text(confidence.rawValue.capitalized)
+                            .font(.caption2)
+                            .foregroundStyle(Theme.secondary)
+                    }
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
     }
 
     private var deviceList: some View {
@@ -253,10 +327,26 @@ struct RoomDetailView: View {
                     addAtCenter()
                 }
                 Divider()
+                Button(showHeat ? "Hide sensor heatmap" : "Show sensor heatmap") { showHeat.toggle() }
+                Button("Wall photos") { texturing = true }
+                if LiDARSupport.canScan {
+                    Button("Re-scan this room") { rescanning = true }
+                }
+                if (home?.rooms.count ?? 0) > 1 {
+                    Button("Compare with another scan") {
+                        compareRoomID = home?.rooms.first { $0.id != roomID }?.id
+                    }
+                }
                 Button("Rename room") {
                     renameDraft = room?.name ?? ""
                     renaming = true
                 }
+                Button("Home Assistant settings") { showSettings = true }
+                Button("Send to Home Assistant") { sendToHomeAssistant() }
+                    .disabled(sending)
+                Button("Share a .zip") { shareZip() }
+                Button("Floor plan PDF") { sharePDF() }
+                Button("Open in Home Assistant") { openCompanion() }
                 Button("Export layout JSON") { shareJSON() }
                 Button("Share USDZ") { shareModel() }
                 Button("Reset camera") { cameraToken += 1 }
@@ -323,6 +413,127 @@ struct RoomDetailView: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func sendToHomeAssistant() {
+        guard let home else { return }
+        guard assistant.isConfigured, let client = assistant.makeClient() else {
+            errorMessage = "Add the Home Assistant URL and a long-lived token in Settings, then send the floor again."
+            showSettings = true
+            return
+        }
+        sending = true
+        Task {
+            defer { sending = false }
+            do {
+                let receipts = try await HomeExportActions.send(home, store: store, client: client)
+                uploadedMessage = "Uploaded \(receipts.count) folders. The card reads layout.json and model.glb under /local/home_scanner/."
+                showUploaded = true
+            } catch let error as HomeAssistantClientError {
+                if case .httpStatus(404, _) = error {
+                    errorMessage = "Home Assistant did not find /api/home_scanner/upload. Install the home_scanner integration, or share a zip and copy it into config/www."
+                } else {
+                    errorMessage = error.localizedDescription
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func heatSamples(in room: Room) -> [HeatSample] {
+        pins.compactMap { pin in
+            guard let state = pinBoard.snapshot(for: pin)?.state, let value = Double(state) else { return nil }
+            return HeatSample(x: pin.position.x, z: pin.position.z, value: value)
+        }
+    }
+
+    private func compareSheet(_ otherID: UUID) -> some View {
+        let current = room
+        let other = home?.room(id: otherID)
+        let diff = ScanDiff.compare(
+            previous: other?.floorPlan ?? .empty,
+            current: current?.floorPlan ?? .empty
+        )
+        let counts = ScanDiff.counts(diff)
+        return NavigationStack {
+            VStack(spacing: 0) {
+                if let current {
+                    FloorPlanCanvas(
+                        layers: PlanLayers.single(current),
+                        pins: [],
+                        showPins: false,
+                        selectedPinID: nil,
+                        placing: false,
+                        changes: diff
+                    )
+                }
+                List {
+                    Picker("Compare with", selection: $compareRoomID) {
+                        ForEach(home?.rooms.filter { $0.id != roomID } ?? []) { otherRoom in
+                            Text(otherRoom.name).tag(Optional(otherRoom.id))
+                        }
+                    }
+                    Text("\(counts.added) added · \(counts.removed) removed · \(counts.moved) moved. Green is new, amber moved, dashed red removed.")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.secondary)
+                    ForEach(diff.filter { change in
+                        if case .unchanged = change.kind { return false }
+                        return true
+                    }) { change in
+                        Text(change.summary)
+                    }
+                }
+                .scrollContentBackground(.hidden)
+            }
+            .navigationTitle("Scan diff")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { compareRoomID = nil }
+                }
+            }
+        }
+    }
+
+    private func measurementLine(_ room: Room) -> some View {
+        let summary = MeasurementMath.summarize(room.floorPlan)
+        let doors = summary.doorWidths.map { "\(MeasurementMath.meters($0)) m" }.joined(separator: ", ")
+        let doorText = doors.isEmpty ? "no doors" : "doors \(doors)"
+        return Text("\(MeasurementMath.squareMeters(summary.floorArea)) · walls \(MeasurementMath.meters(summary.wallLength)) m · \(doorText)")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(Theme.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+    }
+
+    private func sharePDF() {
+        guard let home else { return }
+        do {
+            SharePresenter.present(url: try FloorPlanPDF.fileURL(for: home))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func shareZip() {
+        guard let home else { return }
+        do {
+            SharePresenter.present(url: try HomeExportActions.zipURL(for: home, store: store))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func openCompanion() {
+        guard let url = HomeAssistantLinks.companionDashboard else { return }
+        SharePresenter.open(url) { accepted in
+            guard !accepted else { return }
+            Task { @MainActor in
+                self.errorMessage = "The Home Assistant app did not open. Install the companion app, then try Open in Home Assistant again."
+            }
         }
     }
 

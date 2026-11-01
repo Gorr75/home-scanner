@@ -3,9 +3,12 @@ import RoomScanCore
 
 struct PinEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(HomeAssistantSettings.self) private var assistant
     @State private var draft: DevicePin
     @State private var entityField: String
     @State private var confirmingDelete = false
+    @State private var suggestions: [HAEntityRecord] = []
+    @State private var showSettings = false
 
     var snapshot: EntitySnapshot?
     var onToggle: () -> Void
@@ -47,15 +50,50 @@ struct PinEditorSheet: View {
                 } header: {
                     Text("Home Assistant entity id")
                 } footer: {
-                    Text("Optional. Stored for a later Home Assistant connection. Nothing is sent off this iPhone.")
+                    Text(assistant.isConfigured
+                        ? "Suggestions come from your Home Assistant server. The token stays in the Keychain on this iPhone."
+                        : "Optional until you connect Home Assistant in Settings. The id is stored on this iPhone.")
+                }
+                if assistant.isConfigured {
+                    Section {
+                        if suggestions.isEmpty {
+                            Text(assistant.catalogError ?? "No matching entities yet.")
+                                .font(.footnote)
+                                .foregroundStyle(Theme.secondary)
+                        }
+                        ForEach(suggestions) { record in
+                            Button {
+                                apply(record)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(record.friendlyName ?? record.entityId)
+                                        .foregroundStyle(Theme.ink)
+                                    Text("\(record.entityId) · \(record.state)")
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(Theme.secondary)
+                                }
+                            }
+                        }
+                        Button("Reload entities") {
+                            Task { await assistant.refreshEntities() }
+                        }
+                    } header: {
+                        Text("Home Assistant entities")
+                    }
+                } else {
+                    Section {
+                        Button("Connect Home Assistant") { showSettings = true }
+                    }
                 }
                 if let snapshot {
-                    Section("Sample state") {
+                    Section(assistant.isConfigured ? "Home Assistant" : "Sample state") {
                         LabeledContent("State", value: snapshot.displayState)
                         if snapshot.isToggleable {
                             Button(snapshot.isOn ? "Turn off" : "Turn on", action: onToggle)
                         }
-                        Text("This reading is mock data, not a live Home Assistant state.")
+                        Text(assistant.isConfigured
+                            ? "This reading comes from Home Assistant."
+                            : "This reading is mock data, not a live Home Assistant state.")
                             .font(.footnote)
                             .foregroundStyle(Theme.secondary)
                     }
@@ -101,8 +139,24 @@ struct PinEditorSheet: View {
                     dismiss()
                 }
             }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+            }
+            .task(id: entityField) {
+                suggestions = await assistant.searchEntities(matching: entityField)
+            }
         }
         .tint(Theme.accent)
+    }
+
+    private func apply(_ record: HAEntityRecord) {
+        let previousLabel = draft.kind.label
+        entityField = record.entityId
+        draft.kind = record.suggestedKind
+        let currentName = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if currentName.isEmpty || currentName == previousLabel || currentName == record.suggestedKind.label {
+            draft.name = record.friendlyName ?? record.suggestedKind.label
+        }
     }
 
     @ViewBuilder

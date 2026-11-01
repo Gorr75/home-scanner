@@ -1,6 +1,6 @@
 # Home Assistant layout format
 
-Home Scanner does not talk to Home Assistant in this version. It stores the shape of a home and the devices you place in it, and it can export that as one JSON document. A later Home Assistant integration or Lovelace card can read the file. A later app build can fill in live states through the `HomeStateProvider` seam described below.
+Home Scanner stores the shape of a home and the devices you place in it. It can export that as one JSON document, show live entity state, and upload the layout plus a model to Home Assistant. The Lovelace card reads the uploaded files. See the upload section below and `web/viewer/README.md`.
 
 Nothing in the file is a credential. Do not put a long-lived access token, a base URL password, or any other secret in this JSON.
 
@@ -118,7 +118,26 @@ Present after a multi-room combine, and on the sample apartment.
 3. Draw each pin at `position.x`, `position.z`. Use `kind` for the icon and `entity_id` for state.
 4. Do not draw room pins on top of `overview_floor_plan` unless `coordinates_are_unified` is true.
 
-## Live state, later
+## Upload
+
+**Send to Home Assistant** posts each folder to `POST {baseURL}/api/home_scanner/upload/<id>` with the long-lived token. The custom integration `ha/custom_components/home_scanner/` checks the token, writes the files to `/config/www/home_scanner/<id>/`, and fires `home_scanner_layout_updated`.
+
+| App folder | What is inside | Card URL |
+| --- | --- | --- |
+| Home UUID | Full `roomscan.home` document, `model.glb`, optional `model.usdz` | `/local/home_scanner/<home-id>/layout.json` and `model.glb` |
+| Room UUID | The same document reduced to that room and its pins, plus that room's `model.glb` | `/local/home_scanner/<room-id>/layout.json` and `model.glb` |
+
+`model.glb` is Y-up meters. A room file matches that room's scan. The home file uses the aligned shell when a combine has produced one, and otherwise lays rooms out side by side. A card that draws pins on the model should use the room folder.
+
+**Share a .zip** builds the same tree (`home_scanner/<id>/...`) for the iOS share sheet. Unzip it into `/config/www/` if the integration is not installed yet.
+
+After a successful upload the app opens `homeassistant://navigate/lovelace/home-scanner` in the Home Assistant companion app. Create a Lovelace view with path `home-scanner`.
+
+Install steps, the health check, and a dashboard example are in [ha/custom_components/home_scanner/README.md](../ha/custom_components/home_scanner/README.md).
+
+Test connection calls `GET /api`, `GET /api/config`, and `GET /api/home_scanner/health`.
+
+## Live state
 
 The app talks to device state only through `HomeStateProvider` in the `RoomScanCore` package:
 
@@ -132,29 +151,26 @@ func perform(_ action: EntityAction, entityId: String) async throws -> EntitySna
 
 `EntitySnapshot` is `entity_id`, `state`, `domain`, optional `unit`, and optional `friendly_name`. The mock treats `light`, `switch`, and `fan` as on/off. A temperature sensor is a reading (`21.5` with unit `°C`) and refuses toggle.
 
-v1 always uses `MockHomeStateProvider`. The screen says the numbers are sample data on the phone.
+Until Settings has a base URL and a long-lived token, the app uses `MockHomeStateProvider` and the screen says the numbers are sample data on the phone. After you connect, `HomeAssistantClient` loads states with `GET /api/states`, calls services with `POST /api/services/{domain}/{action}`, and opens a WebSocket at `/api/websocket` for `state_changed`. Polling every few seconds keeps the pins current if the socket drops. Lights, switches, and fans can be toggled. Sensor readings, including temperature, are shown on the pin and in the 3D view.
 
-`UnconfiguredHomeAssistantClient` is the empty stand-in for the real client. It holds:
+`UnconfiguredHomeAssistantClient` remains the stand-in that throws `notConfigured`. The configured client is `HomeAssistantClient`. Settings stores:
 
-- `baseURL`, for example `http://homeassistant.local:8123`
-- `tokenAccount`, the Keychain account name
+- the base URL, for example `http://homeassistant.local:8123`, in UserDefaults
+- the long-lived access token in the Keychain
 
-Suggested Keychain item, not implemented yet:
+Keychain item:
 
 - service: `se.jansson.homescan.homeassistant`
 - account: `access-token`
 - secret: a Home Assistant long-lived access token
-
-The client should map the protocol onto Home Assistant like this:
 
 | Call | Home Assistant |
 | --- | --- |
 | `snapshot` | `GET {baseURL}/api/states/{entity_id}` with `Authorization: Bearer <token>` |
 | `turn_on` / `turn_off` / `toggle` | `POST {baseURL}/api/services/{domain}/{action}` with body `{"entity_id": "<id>"}` |
 | Push updates | WebSocket `{baseURL}/api/websocket`, authenticate with the token, then `subscribe_events` for `state_changed` |
+| Test connection | `GET {baseURL}/api` and `GET {baseURL}/api/config`, then `GET {baseURL}/api/home_scanner/health` |
 
-Normalize cover and lock states in that client (`open` / `closed`, `locked` / `unlocked`). The mock does not pretend those domains toggle.
-
-Settings for the base URL and token belong in that future client, not in `home.json`.
+Cover and lock keep their Home Assistant states (`open` / `closed`, `locked` / `unlocked`). The app does not toggle those domains. The base URL and the token stay out of `home.json`.
 
 The format id stays `roomscan.home`. The app on the home screen is Home Scanner. Outdoor site plans are a later addition and are not part of this file yet. See [roadmap.md](roadmap.md).

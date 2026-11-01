@@ -2,6 +2,7 @@ import Foundation
 
 public enum HomeRepositoryError: Error, Equatable, Sendable {
     case missingHome(UUID)
+    case missingRoom(UUID)
     case unsafePath(String)
     case unreadable(String)
 }
@@ -11,6 +12,8 @@ extension HomeRepositoryError: LocalizedError {
         switch self {
         case .missingHome:
             return "That home is no longer on this device."
+        case .missingRoom:
+            return "That room is no longer on this device."
         case .unsafePath(let path):
             return "Refused to use the path \(path)."
         case .unreadable(let name):
@@ -150,14 +153,18 @@ public final class HomeRepository {
         }
         if let room = home.room(id: roomId) {
             for relative in [room.assets.usdz, room.assets.capturedRoom].compactMap({ $0 }) {
-                try? removeFile(homeId: homeId, relative: relative)
+                do {
+                    try removeFile(homeId: homeId, relative: relative)
+                } catch {
+                    continue
+                }
             }
+            removeTextures(homeId: homeId, surfaceIDs: surfaceIDs(in: room.floorPlan))
         }
         let structureIncludedRoom = home.structure?.roomIds.contains(roomId) == true
         home.deleteRoom(id: roomId)
         if structureIncludedRoom {
-            try? removeFile(homeId: homeId, relative: "structure.usdz")
-            try? removeFile(homeId: homeId, relative: "structure.captured.json")
+            clearStructureFiles(homeId: homeId)
             home.structure = nil
         }
         return try save(home, now: now)
@@ -189,6 +196,84 @@ public final class HomeRepository {
             overviewFloorPlan: overview
         )
         return try save(home, now: now)
+    }
+
+    /// Replaces one room's measured plan and sidecars. The room id, name, and pins stay.
+    /// A merged floor that included the room is cleared, because the shell no longer matches.
+    @discardableResult
+    public func replaceRoom(
+        homeId: UUID,
+        roomId: UUID,
+        floorPlan: FloorPlan,
+        capturedJSON: Data?,
+        usdz: Data?,
+        now: Date = Date()
+    ) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        guard let index = home.rooms.firstIndex(where: { $0.id == roomId }) else {
+            throw HomeRepositoryError.missingRoom(roomId)
+        }
+        var room = home.rooms[index]
+        var assets = room.assets
+        if let capturedJSON {
+            let relative = assets.capturedRoom ?? "rooms/\(roomId.uuidString).captured.json"
+            try write(capturedJSON, homeId: homeId, relative: relative)
+            assets.capturedRoom = relative
+        }
+        if let usdz {
+            let relative = assets.usdz ?? "rooms/\(roomId.uuidString).usdz"
+            try write(usdz, homeId: homeId, relative: relative)
+            assets.usdz = relative
+        }
+        room.floorPlan = floorPlan
+        room.assets = assets
+        home.rooms[index] = room
+        if home.structure?.roomIds.contains(roomId) == true {
+            clearStructureFiles(homeId: homeId)
+            home.structure = nil
+        }
+        return try save(home, now: now)
+    }
+
+    public func textures(homeId: UUID) -> TextureLibrary {
+        let relative = "textures.json"
+        guard let url = try? fileURL(homeId: homeId, relative: relative),
+              fileManager.fileExists(atPath: url.path) else {
+            return .empty
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            return try TextureLibrary.decode(data)
+        } catch {
+            return .empty
+        }
+    }
+
+    public func saveTextures(_ library: TextureLibrary, homeId: UUID) throws {
+        let data = try library.encode()
+        try write(data, homeId: homeId, relative: "textures.json")
+    }
+
+    public func writeTextureImage(homeId: UUID, relative: String, data: Data) throws {
+        try write(data, homeId: homeId, relative: relative)
+    }
+
+    public func removeTextureFile(homeId: UUID, relative: String) {
+        do {
+            try removeFile(homeId: homeId, relative: relative)
+        } catch {
+            return
+        }
+    }
+
+    public func textureData(homeId: UUID, relative: String) -> Data? {
+        guard let url = try? fileURL(homeId: homeId, relative: relative),
+              fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return try? Data(contentsOf: url)
     }
 
     public func capturedPayloads(in home: Home) throws -> [(room: Room, data: Data)] {
@@ -256,6 +341,40 @@ public final class HomeRepository {
             withIntermediateDirectories: true
         )
         try data.write(to: url, options: .atomic)
+    }
+
+    private func surfaceIDs(in plan: FloorPlan) -> Set<UUID> {
+        Set(plan.walls.map(\.id) + plan.floors.map(\.id))
+    }
+
+    private func removeTextures(homeId: UUID, surfaceIDs: Set<UUID>) {
+        guard !surfaceIDs.isEmpty else { return }
+        let library = textures(homeId: homeId)
+        let removed = library.photos.filter { surfaceIDs.contains($0.surfaceId) }
+        guard !removed.isEmpty else { return }
+        for photo in removed {
+            do {
+                try removeFile(homeId: homeId, relative: photo.imagePath)
+            } catch {
+                continue
+            }
+        }
+        let kept = TextureLibrary(photos: library.photos.filter { !surfaceIDs.contains($0.surfaceId) })
+        do {
+            try saveTextures(kept, homeId: homeId)
+        } catch {
+            return
+        }
+    }
+
+    private func clearStructureFiles(homeId: UUID) {
+        for relative in ["structure.usdz", "structure.captured.json"] {
+            do {
+                try removeFile(homeId: homeId, relative: relative)
+            } catch {
+                continue
+            }
+        }
     }
 
     private func removeFile(homeId: UUID, relative: String) throws {

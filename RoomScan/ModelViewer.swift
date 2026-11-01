@@ -1,7 +1,14 @@
+import QuartzCore
 import SceneKit
 import SwiftUI
 import RoomScanCore
 import UIKit
+
+struct SurfacePaint {
+    var surfaceId: UUID
+    var image: UIImage
+    var corners: [ImagePoint]
+}
 
 struct RoomModelView: UIViewRepresentable {
     var layers: [PlanLayer]
@@ -9,12 +16,14 @@ struct RoomModelView: UIViewRepresentable {
     var pins: [DevicePin]
     var showPins: Bool
     var stateByEntity: [String: String]
+    var captionByPin: [UUID: String]
     var selectedPinID: UUID?
     var placementEnabled: Bool
     var cameraToken: Int
     var onSelectPin: (UUID?) -> Void
     var onPlace: (Vec3) -> Void
     var onRenderedUSDZ: (Bool) -> Void
+    var surfacePaints: [SurfacePaint] = []
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -66,7 +75,47 @@ struct RoomModelView: UIViewRepresentable {
         }
         if let scene = view.scene {
             replacePins(in: scene)
+            replaceTextures(in: scene)
         }
+    }
+
+    private func replaceTextures(in scene: SCNScene) {
+        scene.rootNode.childNodes
+            .filter { $0.name?.hasPrefix("texture:") == true }
+            .forEach { $0.removeFromParentNode() }
+        for paint in surfacePaints {
+            for layer in layers {
+                if let wall = layer.plan.walls.first(where: { $0.id == paint.surfaceId }) {
+                    addTexturedQuad(SurfaceFrame.wallCorners(wall, offset: layer.offset), paint: paint, in: scene)
+                }
+                if let floor = layer.plan.floors.first(where: { $0.id == paint.surfaceId }) {
+                    let corners = SurfaceFrame.floorCorners(floor, offset: layer.offset)
+                    if corners.count == 4 {
+                        addTexturedQuad(corners, paint: paint, in: scene)
+                    }
+                }
+            }
+        }
+    }
+
+    private func addTexturedQuad(_ corners: [Vec3], paint: SurfacePaint, in scene: SCNScene) {
+        guard corners.count == 4, paint.corners.count == 4 else { return }
+        let vertices = corners.map { SCNVector3(Float($0.x), Float($0.y), Float($0.z)) }
+        let coordinates = paint.corners.map { CGPoint(x: $0.x, y: 1 - $0.y) }
+        let vertexSource = SCNGeometrySource(vertices: vertices)
+        let uvSource = SCNGeometrySource(textureCoordinates: coordinates)
+        var indices: [UInt32] = [0, 1, 2, 0, 2, 3]
+        let indexData = indices.withUnsafeBufferPointer { Data(buffer: $0) }
+        let element = SCNGeometryElement(data: indexData, primitiveType: .triangles, primitiveCount: 2, bytesPerIndex: 4)
+        let geometry = SCNGeometry(sources: [vertexSource, uvSource], elements: [element])
+        let material = SCNMaterial()
+        material.diffuse.contents = paint.image
+        material.lightingModel = .constant
+        material.isDoubleSided = true
+        geometry.materials = [material]
+        let node = SCNNode(geometry: geometry)
+        node.name = "texture:\(paint.surfaceId.uuidString)"
+        scene.rootNode.addChildNode(node)
     }
 
     private func copyChildren(from source: SCNScene, into destination: SCNScene) {
@@ -189,6 +238,11 @@ struct RoomModelView: UIViewRepresentable {
             let sphereNode = SCNNode(geometry: sphere)
             sphereNode.position = SCNVector3(Float(world.x), Float(world.y), Float(world.z))
             root.addChildNode(sphereNode)
+            let caption = captionByPin[pin.id]
+            let label = caption.map { "\(pin.name)\n\($0)" } ?? pin.name
+            let textNode = labelNode(label)
+            textNode.position = SCNVector3(Float(world.x), Float(world.y + 0.18), Float(world.z))
+            root.addChildNode(textNode)
             if world.y > 0.25 {
                 let stem = SCNCylinder(radius: 0.012, height: CGFloat(world.y))
                 stem.materials = [material(color(for: pin).withAlphaComponent(0.85), roughness: 0.5)]
@@ -230,6 +284,24 @@ struct RoomModelView: UIViewRepresentable {
         return Self.readingColor
     }
 
+    private func labelNode(_ text: String) -> SCNNode {
+        let geometry = SCNText(string: text, extrusionDepth: 0.2)
+        geometry.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+        geometry.flatness = 0.3
+        geometry.alignmentMode = CATextLayerAlignmentMode.center.rawValue
+        geometry.materials = [material(Self.ink, roughness: 1)]
+        let node = SCNNode(geometry: geometry)
+        let (minBound, maxBound) = node.boundingBox
+        let dx = (maxBound.x - minBound.x) / 2
+        let dy = (maxBound.y - minBound.y) / 2
+        node.pivot = SCNMatrix4MakeTranslation(minBound.x + dx, minBound.y + dy, 0)
+        node.scale = SCNVector3(0.008, 0.008, 0.008)
+        let billboard = SCNBillboardConstraint()
+        billboard.freeAxes = .all
+        node.constraints = [billboard]
+        return node
+    }
+
     private func material(_ color: UIColor, roughness: CGFloat = 0.8, alpha: CGFloat = 1) -> SCNMaterial {
         let material = SCNMaterial()
         material.diffuse.contents = color
@@ -240,6 +312,7 @@ struct RoomModelView: UIViewRepresentable {
         return material
     }
 
+    private static let ink = UIColor(red: 0.110, green: 0.098, blue: 0.082, alpha: 1)
     private static let accent = UIColor(red: 0.122, green: 0.420, blue: 0.353, alpha: 1)
     private static let onColor = UIColor(red: 0.18, green: 0.55, blue: 0.32, alpha: 1)
     private static let offColor = UIColor(red: 0.45, green: 0.42, blue: 0.38, alpha: 1)

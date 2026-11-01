@@ -11,6 +11,7 @@ struct HomeListView: View {
     @State private var draftName = ""
     @State private var pendingDelete: Home?
     @State private var errorMessage: String?
+    @State private var showSettings = false
 
     var body: some View {
         List(selection: listSelection) {
@@ -51,7 +52,7 @@ struct HomeListView: View {
             } header: {
                 Text("Homes")
             } footer: {
-                Text("Scans, floor plans, and device pins stay in Files on this iPhone. There is no account and no cloud upload.")
+                Text("Scans stay in Files on this iPhone. Connect Home Assistant in Settings to link entities and, when you choose, send a floor plan.")
             }
             if !store.warnings.isEmpty {
                 Section("Couldn't read") {
@@ -79,6 +80,17 @@ struct HomeListView: View {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Sample") { openSample() }
             }
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Settings")
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
         }
         .alert("New home", isPresented: $creating) {
             TextField("Ground floor", text: $draftName)

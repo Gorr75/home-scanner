@@ -7,3 +7,5 @@ xcuserdata/
 *.xcscmblueprint
 *.moved-aside
 .idea/
+__pycache__/
+*.pyc

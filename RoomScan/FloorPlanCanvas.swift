@@ -7,6 +7,10 @@ struct FloorPlanCanvas: View {
     var showPins: Bool
     var selectedPinID: UUID?
     var placing: Bool
+    var pinCaptions: [UUID: String] = [:]
+    var pinStates: [UUID: String] = [:]
+    var changes: [ObjectChange] = []
+    var heatSamples: [HeatSample] = []
     var interactive: Bool = true
     var onSelectPin: (UUID?) -> Void = { _ in }
     var onMovePin: (UUID, Double, Double) -> Void = { _, _, _ in }
@@ -37,6 +41,7 @@ struct FloorPlanCanvas: View {
             let projector = adjusted(fitted)
             let canvas = Canvas { context, size in
                 drawGrid(in: context, projector: projector, bounds: bounds, size: size)
+                drawHeat(in: context, projector: projector, bounds: bounds)
                 for layer in layers {
                     drawFloor(layer, in: context, projector: projector)
                 }
@@ -176,6 +181,38 @@ struct FloorPlanCanvas: View {
         return PlanLayers.displayPosition(of: pin, in: layers)
     }
 
+    private func drawHeat(in context: GraphicsContext, projector: PlanProjector, bounds: AABB) {
+        guard let span = Heatmap.range(of: heatSamples) else { return }
+        let cells = Heatmap.grid(samples: heatSamples, bounds: bounds, columns: 18, rows: 18)
+        let columnCount = cells.first?.count ?? 0
+        guard columnCount > 0 else { return }
+        let rowCount = cells.count
+        for (row, line) in cells.enumerated() {
+            for (column, value) in line.enumerated() {
+                guard let value else { continue }
+                let x0 = bounds.min.x + Double(column) / Double(columnCount) * bounds.size.x
+                let x1 = bounds.min.x + Double(column + 1) / Double(columnCount) * bounds.size.x
+                let z0 = bounds.min.z + Double(row) / Double(rowCount) * bounds.size.z
+                let z1 = bounds.min.z + Double(row + 1) / Double(rowCount) * bounds.size.z
+                let origin = point(projector.screen(x: x0, z: z0))
+                let opposite = point(projector.screen(x: x1, z: z1))
+                let rect = CGRect(
+                    x: min(origin.x, opposite.x),
+                    y: min(origin.y, opposite.y),
+                    width: abs(opposite.x - origin.x),
+                    height: abs(opposite.y - origin.y)
+                )
+                context.fill(Path(rect), with: .color(heatColor(value, span: span)))
+            }
+        }
+    }
+
+    private func heatColor(_ value: Double, span: (min: Double, max: Double)) -> Color {
+        let width = span.max - span.min
+        let t = width < 0.0001 ? 0.5 : min(1, max(0, (value - span.min) / width))
+        return Color(red: t, green: 0.35 * (1 - abs(t - 0.5) * 2), blue: 1 - t).opacity(0.42)
+    }
+
     private func drawGrid(in context: GraphicsContext, projector: PlanProjector, bounds: AABB, size: CGSize) {
         var path = Path()
         let startX = floor(bounds.min.x)
@@ -225,9 +262,65 @@ struct FloorPlanCanvas: View {
                 path.addLine(to: point(projector.screen(x: corner.x, z: corner.z)))
             }
             path.closeSubpath()
-            context.fill(path, with: .color(Theme.ink.opacity(0.08)))
-            context.stroke(path, with: .color(Theme.ink.opacity(0.35)), lineWidth: 1)
+            context.fill(path, with: .color(Theme.ink.opacity(changeFill(object.id))))
+            context.stroke(
+                path,
+                with: .color(changeStroke(object.id)),
+                style: StrokeStyle(lineWidth: changeLineWidth(object.id), dash: changeDash(object.id))
+            )
+            let anchor = shifted(object.center, by: layer.offset)
+            let screen = point(projector.screen(x: anchor.x, z: anchor.z))
+            context.draw(
+                Text("\(ObjectLabels.title(for: object.category))\n\(ObjectLabels.footprint(object))")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.ink),
+                at: screen
+            )
         }
+        for change in changes {
+            guard case .removed = change.kind else { continue }
+            let corners = change.object.footprint.map { shifted($0, by: layer.offset) }
+            guard corners.count >= 3 else { continue }
+            var path = Path()
+            path.move(to: point(projector.screen(x: corners[0].x, z: corners[0].z)))
+            for corner in corners.dropFirst() {
+                path.addLine(to: point(projector.screen(x: corner.x, z: corner.z)))
+            }
+            path.closeSubpath()
+            context.stroke(path, with: .color(Theme.warn), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+        }
+    }
+
+    private func changeFill(_ id: UUID) -> Color {
+        switch changeKind(id) {
+        case .added: return Color(red: 0.18, green: 0.55, blue: 0.32).opacity(0.25)
+        case .moved: return Theme.warn.opacity(0.2)
+        case .removed, .unchanged: return Theme.ink.opacity(0.08)
+        }
+    }
+
+    private func changeStroke(_ id: UUID) -> Color {
+        switch changeKind(id) {
+        case .added: return Color(red: 0.18, green: 0.55, blue: 0.32)
+        case .moved: return Theme.warn
+        case .removed, .unchanged: return Theme.ink.opacity(0.35)
+        }
+    }
+
+    private func changeLineWidth(_ id: UUID) -> CGFloat {
+        switch changeKind(id) {
+        case .added, .moved: return 2
+        case .removed, .unchanged: return 1
+        }
+    }
+
+    private func changeDash(_ id: UUID) -> [CGFloat] {
+        if case .moved = changeKind(id) { return [5, 3] }
+        return []
+    }
+
+    private func changeKind(_ id: UUID) -> ObjectChange.Kind {
+        changes.first { $0.object.id == id }?.kind ?? .unchanged
     }
 
     private func drawWalls(_ layer: PlanLayer, in context: GraphicsContext, projector: PlanProjector) {
@@ -277,6 +370,15 @@ struct FloorPlanCanvas: View {
             let rect = CGRect(x: screen.x - radius, y: screen.y - radius, width: radius * 2, height: radius * 2)
             context.fill(Path(ellipseIn: rect), with: .color(pinColor(pin)))
             context.stroke(Path(ellipseIn: rect), with: .color(.white), lineWidth: selected ? 2 : 1)
+            if let caption = pinCaptions[pin.id], !caption.isEmpty {
+                context.draw(
+                    Text(caption)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(Theme.ink),
+                    at: CGPoint(x: screen.x + radius + 4, y: screen.y),
+                    anchor: .leading
+                )
+            }
         }
     }
 
@@ -296,8 +398,12 @@ struct FloorPlanCanvas: View {
     }
 
     private func pinColor(_ pin: DevicePin) -> Color {
-        guard pin.entityId != nil else { return Theme.accent }
-        return Theme.ink
+        guard let state = pinStates[pin.id] else {
+            return pin.entityId == nil ? Theme.accent : Theme.ink
+        }
+        if state == "on" { return Color(red: 0.18, green: 0.55, blue: 0.32) }
+        if state == "off" { return Theme.secondary }
+        return Color(red: 0.20, green: 0.38, blue: 0.55)
     }
 
     private func point(_ value: (x: Double, y: Double)) -> CGPoint {
