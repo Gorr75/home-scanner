@@ -238,15 +238,23 @@ public final class HomeRepository {
         guard var home = homes.first(where: { $0.id == homeId }) else {
             throw HomeRepositoryError.missingHome(homeId)
         }
-        let clipped = MeshRange.clipped(mesh)
-        let shape = MeshRange.footprint(clipped)
+        // The capture path already drops triangles farther than the sensor range from each
+        // mesh anchor. Clipping again from the session origin would delete a facade once
+        // the phone has walked more than 5 meters away from where the scan started.
+        let shape = MeshRange.footprint(mesh)
+        let survey = MeshSurveyor.analyze(mesh)
         let zoneID = UUID()
         let relative = "outdoor/\(zoneID.uuidString).obj"
-        let text = MeshOBJ.encode(clipped)
-        guard let data = text.data(using: .utf8) else {
+        guard let data = MeshOBJ.encode(mesh).data(using: .utf8) else {
             throw HomeRepositoryError.unreadable(name)
         }
         try write(data, homeId: homeId, relative: relative)
+        var assets = OutdoorAssets(obj: relative)
+        if !survey.ground.faces.isEmpty, let terrain = MeshOBJ.encode(survey.ground).data(using: .utf8) {
+            let terrainPath = "outdoor/\(zoneID.uuidString)-terrain.obj"
+            try write(terrain, homeId: homeId, relative: terrainPath)
+            assets.terrain = terrainPath
+        }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let zone = OutdoorZone(
             id: zoneID,
@@ -255,8 +263,11 @@ public final class HomeRepository {
             createdAt: now,
             footprint: shape.corners,
             height: shape.height,
-            meshVertexCount: clipped.vertices.count,
-            assets: OutdoorAssets(obj: relative)
+            meshVertexCount: mesh.vertices.count,
+            assets: assets,
+            buildingFootprint: survey.buildingFootprint,
+            groundVertexCount: survey.ground.vertices.count,
+            walls: survey.walls
         )
         home.outdoorZones.append(zone)
         return try save(home, now: now)
@@ -267,8 +278,13 @@ public final class HomeRepository {
         guard var home = homes.first(where: { $0.id == homeId }) else {
             throw HomeRepositoryError.missingHome(homeId)
         }
-        if let zone = home.outdoorZone(id: zoneId), let relative = zone.assets.obj {
-            try? removeFile(homeId: homeId, relative: relative)
+        if let zone = home.outdoorZone(id: zoneId) {
+            if let relative = zone.assets.obj {
+                _ = try? removeFile(homeId: homeId, relative: relative)
+            }
+            if let relative = zone.assets.terrain {
+                _ = try? removeFile(homeId: homeId, relative: relative)
+            }
         }
         home.deleteOutdoorZone(id: zoneId)
         return try save(home, now: now)
@@ -281,6 +297,9 @@ public final class HomeRepository {
         pixelWidth: Int,
         pixelHeight: Int,
         widthMeters: Double,
+        heightMeters: Double? = nil,
+        yaw: Double? = nil,
+        center: Vec3? = nil,
         georeference: Georeference? = nil,
         now: Date = Date()
     ) throws -> Home {
@@ -298,12 +317,120 @@ public final class HomeRepository {
             pixelWidth: max(pixelWidth, 1),
             pixelHeight: max(pixelHeight, 1),
             widthMeters: safeWidth,
-            heightMeters: safeWidth * aspect,
-            center: previous?.center ?? .zero,
-            yaw: previous?.yaw ?? 0,
+            heightMeters: heightMeters ?? safeWidth * aspect,
+            center: center ?? previous?.center ?? .zero,
+            yaw: yaw ?? previous?.yaw ?? 0,
             georeference: georeference ?? previous?.georeference
         )
         home.site = site
+        return try save(home, now: now)
+    }
+
+    @discardableResult
+    public func importDroneOverlay(
+        homeId: UUID,
+        id: UUID = UUID(),
+        image: Data,
+        fileExtension: String,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        center: Vec3,
+        yaw: Double,
+        widthMeters: Double,
+        heightMeters: Double,
+        georeference: Georeference? = nil,
+        altitudeMeters: Double? = nil,
+        relativeAltitudeMeters: Double? = nil,
+        focalLengthMillimeters: Double? = nil,
+        focalLength35mm: Double? = nil,
+        headingDegrees: Double? = nil,
+        pitchDegrees: Double? = nil,
+        note: String? = nil,
+        now: Date = Date()
+    ) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        let ext = fileExtension.lowercased() == "png" ? "png" : "jpg"
+        let relative = "site/overlays/\(id.uuidString).\(ext)"
+        try write(image, homeId: homeId, relative: relative)
+        var site = home.site ?? Site()
+        let overlay = DroneOverlay(
+            id: id,
+            image: relative,
+            pixelWidth: max(pixelWidth, 1),
+            pixelHeight: max(pixelHeight, 1),
+            center: center,
+            yaw: yaw,
+            widthMeters: max(widthMeters, 0.5),
+            heightMeters: max(heightMeters, 0.5),
+            georeference: georeference,
+            altitudeMeters: altitudeMeters,
+            relativeAltitudeMeters: relativeAltitudeMeters,
+            focalLengthMillimeters: focalLengthMillimeters,
+            focalLength35mm: focalLength35mm,
+            headingDegrees: headingDegrees,
+            pitchDegrees: pitchDegrees,
+            note: note
+        )
+        site.overlays.removeAll { $0.id == id }
+        site.overlays.append(overlay)
+        home.site = site
+        return try save(home, now: now)
+    }
+
+    @discardableResult
+    public func deleteDroneOverlay(homeId: UUID, overlayId: UUID, now: Date = Date()) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        if let overlay = home.site?.overlays.first(where: { $0.id == overlayId }) {
+            let stillUsed = home.outdoorZones.contains { zone in
+                zone.walls.contains { $0.texture?.image == overlay.image }
+            } || home.rooms.contains { room in
+                room.floorPlan.walls.contains { $0.texture?.image == overlay.image }
+            }
+            if !stillUsed {
+                _ = try? removeFile(homeId: homeId, relative: overlay.image)
+            }
+        }
+        home.site?.overlays.removeAll { $0.id == overlayId }
+        return try save(home, now: now)
+    }
+
+    /// Writes a facade texture, or points an outdoor wall at an image that is already in the home folder.
+    @discardableResult
+    public func setFacadeTexture(
+        homeId: UUID,
+        zoneId: UUID,
+        wallId: UUID,
+        imageRelativePath: String,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        corners: [UVPoint],
+        imageData: Data? = nil,
+        now: Date = Date()
+    ) throws -> Home {
+        guard corners.count == 4 else {
+            throw HomeRepositoryError.unreadable("facade texture")
+        }
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        guard let zoneIndex = home.outdoorZones.firstIndex(where: { $0.id == zoneId }),
+              let wallIndex = home.outdoorZones[zoneIndex].walls.firstIndex(where: { $0.id == wallId })
+        else {
+            throw HomeRepositoryError.unreadable("facade")
+        }
+        if let imageData {
+            try write(imageData, homeId: homeId, relative: imageRelativePath)
+        }
+        home.outdoorZones[zoneIndex].walls[wallIndex].texture = SurfaceTexture(
+            image: imageRelativePath,
+            pixelWidth: max(pixelWidth, 1),
+            pixelHeight: max(pixelHeight, 1),
+            corners: corners
+        )
         return try save(home, now: now)
     }
 
@@ -321,7 +448,16 @@ public final class HomeRepository {
     /// Adds the bundled shed mesh and, when image bytes are provided, a site underlay.
     /// Existing rooms are placed on the site if they are not already placed.
     @discardableResult
-    public func installSampleSite(homeId: UUID, image: Data?, pixelWidth: Int, pixelHeight: Int, now: Date = Date()) throws -> Home {
+    public func installSampleSite(
+        homeId: UUID,
+        image: Data?,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        facade: Data? = nil,
+        facadePixelWidth: Int = 0,
+        facadePixelHeight: Int = 0,
+        now: Date = Date()
+    ) throws -> Home {
         guard var home = homes.first(where: { $0.id == homeId }) else {
             throw HomeRepositoryError.missingHome(homeId)
         }
@@ -348,7 +484,7 @@ public final class HomeRepository {
                 pixelHeight: max(pixelHeight, 1),
                 widthMeters: width,
                 heightMeters: width * aspect,
-                georeference: Georeference(latitude: 59.3293, longitude: 18.0686, headingDegrees: 12)
+                georeference: Georeference(latitude: 59.3293, longitude: 18.0686, headingDegrees: 0)
             )
             home.site = site
         }
@@ -356,6 +492,20 @@ public final class HomeRepository {
             var site = home.site ?? Site()
             site.placements = SiteLayout.defaultPlacements(rooms: home.rooms, zones: home.outdoorZones)
             home.site = site
+        }
+        if let facade,
+           let zoneIndex = home.outdoorZones.firstIndex(where: { $0.id == SampleSite.patioID }),
+           let wall = SiteSurvey.longestWall(in: home.outdoorZones[zoneIndex]),
+           home.outdoorZones[zoneIndex].walls.first(where: { $0.id == wall.id })?.texture == nil {
+            let relative = "textures/sample-facade.png"
+            try write(facade, homeId: homeId, relative: relative)
+            if let wallIndex = home.outdoorZones[zoneIndex].walls.firstIndex(where: { $0.id == wall.id }) {
+                home.outdoorZones[zoneIndex].walls[wallIndex].texture = SurfaceTexture.fullImage(
+                    path: relative,
+                    pixelWidth: max(facadePixelWidth, 1),
+                    pixelHeight: max(facadePixelHeight, 1)
+                )
+            }
         }
         return try save(home, now: now)
     }

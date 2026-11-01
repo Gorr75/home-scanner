@@ -230,7 +230,7 @@ struct HomeDetailView: View {
                 NavigationLink(value: AppRoute.outdoor(home: home.id, zone: zone.id)) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(zone.name)
-                        Text("\(zone.kind.label) · \(zone.meshVertexCount) vertices")
+                        Text("\(zone.kind.label) · \(zone.walls.count) facades · \(zone.groundVertexCount) ground points")
                             .font(.caption)
                             .foregroundStyle(Theme.secondary)
                     }

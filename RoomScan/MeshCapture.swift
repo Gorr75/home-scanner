@@ -1,4 +1,5 @@
 import ARKit
+import Metal
 import RoomScanCore
 import simd
 
@@ -23,6 +24,11 @@ enum MeshCapture {
     static func localMesh(from anchor: ARMeshAnchor) -> TriangleMesh {
         let geometry = anchor.geometry
         let source = geometry.vertices
+        // ARKit documents mesh vertices as float3. A future SDK that changes the format
+        // should fail this guard instead of reading the buffer as the wrong type.
+        guard source.format == .float3, source.componentsPerVector >= 3, source.stride >= MemoryLayout<Float>.size * 3 else {
+            return TriangleMesh(vertices: [], faces: [])
+        }
         let base = source.buffer.contents()
         var vertices: [Vec3] = []
         vertices.reserveCapacity(source.count)
@@ -33,7 +39,9 @@ enum MeshCapture {
         let faces = geometry.faces
         let faceBase = faces.buffer.contents()
         let primitive = faces.indexCountPerPrimitive
-        guard primitive >= 3 else { return TriangleMesh(vertices: vertices, faces: []) }
+        guard primitive >= 3,
+              faces.bytesPerIndex == MemoryLayout<UInt16>.size || faces.bytesPerIndex == MemoryLayout<UInt32>.size
+        else { return TriangleMesh(vertices: vertices, faces: []) }
         var meshFaces: [MeshFace] = []
         meshFaces.reserveCapacity(faces.count)
         for faceIndex in 0..<faces.count {

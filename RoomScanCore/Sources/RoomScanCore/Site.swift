@@ -20,11 +20,14 @@ public enum OutdoorKind: String, Codable, CaseIterable, Hashable, Sendable {
 }
 
 public struct OutdoorAssets: Codable, Equatable, Sendable {
-    /// Wavefront OBJ, relative to the home folder.
+    /// Wavefront OBJ of the whole clipped mesh, relative to the home folder.
     public var obj: String?
+    /// Upward faces near the ground, when the mesh had a terrain band.
+    public var terrain: String?
 
-    public init(obj: String? = nil) {
+    public init(obj: String? = nil, terrain: String? = nil) {
         self.obj = obj
+        self.terrain = terrain
     }
 }
 
@@ -40,6 +43,11 @@ public struct OutdoorZone: Codable, Equatable, Identifiable, Sendable {
     @Quantized public var height: Double
     public var meshVertexCount: Int
     public var assets: OutdoorAssets
+    /// Convex hull of the vertical faces, in this zone's scan space. Empty when no facade was found.
+    public var buildingFootprint: [Vec3]
+    public var groundVertexCount: Int
+    /// Facade planes. Each wall can carry the same `texture` object as an indoor wall.
+    public var walls: [WallSegment]
 
     public init(
         id: UUID,
@@ -49,7 +57,10 @@ public struct OutdoorZone: Codable, Equatable, Identifiable, Sendable {
         footprint: [Vec3],
         height: Double,
         meshVertexCount: Int,
-        assets: OutdoorAssets = OutdoorAssets()
+        assets: OutdoorAssets = OutdoorAssets(),
+        buildingFootprint: [Vec3] = [],
+        groundVertexCount: Int = 0,
+        walls: [WallSegment] = []
     ) {
         self.id = id
         self.name = name
@@ -59,6 +70,61 @@ public struct OutdoorZone: Codable, Equatable, Identifiable, Sendable {
         self.height = height
         self.meshVertexCount = meshVertexCount
         self.assets = assets
+        self.buildingFootprint = buildingFootprint
+        self.groundVertexCount = groundVertexCount
+        self.walls = walls
+    }
+}
+
+extension OutdoorZone {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case kind
+        case createdAt
+        case footprint
+        case height
+        case meshVertexCount
+        case assets
+        case buildingFootprint
+        case groundVertexCount
+        case walls
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        kind = try container.decode(OutdoorKind.self, forKey: .kind)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        footprint = try container.decode([Vec3].self, forKey: .footprint)
+        height = try container.decode(Double.self, forKey: .height)
+        meshVertexCount = try container.decode(Int.self, forKey: .meshVertexCount)
+        assets = try container.decode(OutdoorAssets.self, forKey: .assets)
+        buildingFootprint = try container.decodeIfPresent([Vec3].self, forKey: .buildingFootprint) ?? []
+        groundVertexCount = try container.decodeIfPresent(Int.self, forKey: .groundVertexCount) ?? 0
+        walls = try container.decodeIfPresent([WallSegment].self, forKey: .walls) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(footprint, forKey: .footprint)
+        try container.encode(Quantized(wrappedValue: height), forKey: .height)
+        try container.encode(meshVertexCount, forKey: .meshVertexCount)
+        try container.encode(assets, forKey: .assets)
+        if !buildingFootprint.isEmpty {
+            try container.encode(buildingFootprint, forKey: .buildingFootprint)
+        }
+        if groundVertexCount > 0 {
+            try container.encode(groundVertexCount, forKey: .groundVertexCount)
+        }
+        if !walls.isEmpty {
+            try container.encode(walls, forKey: .walls)
+        }
     }
 }
 
@@ -170,13 +236,96 @@ public struct SitePlacement: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+/// A drone or phone photo placed on the site from its GPS, and available as a facade texture.
+public struct DroneOverlay: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID
+    public var image: String
+    public var pixelWidth: Int
+    public var pixelHeight: Int
+    /// Used when the photo or the underlay has no geographic position.
+    public var center: Vec3
+    @Quantized public var yaw: Double
+    @Quantized public var widthMeters: Double
+    @Quantized public var heightMeters: Double
+    public var georeference: Georeference?
+    public var altitudeMeters: Double?
+    public var relativeAltitudeMeters: Double?
+    public var focalLengthMillimeters: Double?
+    public var focalLength35mm: Double?
+    public var headingDegrees: Double?
+    public var pitchDegrees: Double?
+    public var note: String?
+
+    public init(
+        id: UUID = UUID(),
+        image: String,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        center: Vec3,
+        yaw: Double = 0,
+        widthMeters: Double,
+        heightMeters: Double,
+        georeference: Georeference? = nil,
+        altitudeMeters: Double? = nil,
+        relativeAltitudeMeters: Double? = nil,
+        focalLengthMillimeters: Double? = nil,
+        focalLength35mm: Double? = nil,
+        headingDegrees: Double? = nil,
+        pitchDegrees: Double? = nil,
+        note: String? = nil
+    ) {
+        self.id = id
+        self.image = image
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.center = center
+        self.yaw = yaw
+        self.widthMeters = widthMeters
+        self.heightMeters = heightMeters
+        self.georeference = georeference
+        self.altitudeMeters = altitudeMeters
+        self.relativeAltitudeMeters = relativeAltitudeMeters
+        self.focalLengthMillimeters = focalLengthMillimeters
+        self.focalLength35mm = focalLength35mm
+        self.headingDegrees = headingDegrees
+        self.pitchDegrees = pitchDegrees
+        self.note = note
+    }
+}
+
 public struct Site: Codable, Equatable, Sendable {
     public var underlay: SiteUnderlay?
     public var placements: [SitePlacement]
+    public var overlays: [DroneOverlay]
 
-    public init(underlay: SiteUnderlay? = nil, placements: [SitePlacement] = []) {
+    public init(underlay: SiteUnderlay? = nil, placements: [SitePlacement] = [], overlays: [DroneOverlay] = []) {
         self.underlay = underlay
         self.placements = placements
+        self.overlays = overlays
+    }
+}
+
+extension Site {
+    private enum CodingKeys: String, CodingKey {
+        case underlay
+        case placements
+        case overlays
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        underlay = try container.decodeIfPresent(SiteUnderlay.self, forKey: .underlay)
+        placements = try container.decodeIfPresent([SitePlacement].self, forKey: .placements) ?? []
+        overlays = try container.decodeIfPresent([DroneOverlay].self, forKey: .overlays) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(underlay, forKey: .underlay)
+        try container.encode(placements, forKey: .placements)
+        if !overlays.isEmpty {
+            try container.encode(overlays, forKey: .overlays)
+        }
     }
 }
 
@@ -400,8 +549,8 @@ public enum SampleSite {
         for (x, z) in corners {
             vertices.append(Vec3(x: x, y: 2.4, z: z))
         }
-        faces.append(MeshFace(a: 0, b: 1, c: 2))
-        faces.append(MeshFace(a: 0, b: 2, c: 3))
+        faces.append(MeshFace(a: 0, b: 2, c: 1))
+        faces.append(MeshFace(a: 0, b: 3, c: 2))
         faces.append(MeshFace(a: 4, b: 6, c: 5))
         faces.append(MeshFace(a: 4, b: 7, c: 6))
         let walls = [(0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
@@ -415,6 +564,7 @@ public enum SampleSite {
     public static func shedZone(createdAt: Date = SampleApartment.createdAt) -> OutdoorZone {
         let mesh = shedMesh()
         let shape = MeshRange.footprint(mesh)
+        let survey = MeshSurveyor.analyze(mesh)
         return OutdoorZone(
             id: patioID,
             name: "Shed",
@@ -423,7 +573,10 @@ public enum SampleSite {
             footprint: shape.corners,
             height: shape.height,
             meshVertexCount: mesh.vertices.count,
-            assets: OutdoorAssets(obj: "outdoor/\(patioID.uuidString).obj")
+            assets: OutdoorAssets(obj: "outdoor/\(patioID.uuidString).obj"),
+            buildingFootprint: survey.buildingFootprint,
+            groundVertexCount: survey.ground.vertices.count,
+            walls: survey.walls
         )
     }
 }

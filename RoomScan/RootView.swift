@@ -8,6 +8,7 @@ enum AppRoute: Hashable {
     case plan(UUID)
     case site(UUID)
     case outdoor(home: UUID, zone: UUID)
+    case facade(home: UUID, zone: UUID, wall: UUID)
 }
 
 struct RootView: View {
@@ -71,6 +72,8 @@ extension View {
                 SitePlanView(homeID: id)
             case .outdoor(let home, let zone):
                 OutdoorZoneView(homeID: home, zoneID: zone)
+            case .facade(let home, let zone, let wall):
+                FacadeTextureView(homeID: home, zoneID: zone, wallID: wall)
             }
         }
     }
