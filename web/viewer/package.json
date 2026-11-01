@@ -1,0 +1,11 @@
+{
+  "name": "home-scanner-viewer",
+  "private": true,
+  "type": "module",
+  "description": "Static Home Scanner viewer. No install and no build step.",
+  "scripts": {
+    "sample": "python3 scripts/make_sample_glb.py",
+    "check": "node --test scripts/logic.test.mjs",
+    "render-check": "node scripts/render-check.mjs"
+  }
+}

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Home Scanner</title>
+    <link rel="stylesheet" href="css/viewer.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="top">
+        <div>
+          <h1 data-title>Home Scanner</h1>
+          <p class="sub" data-sub>Loading the sample apartment…</p>
+        </div>
+        <div class="files">
+          <label class="file">
+            Layout JSON
+            <input data-layout-file type="file" accept="application/json,.json" hidden />
+          </label>
+          <label class="file">
+            GLB model
+            <input data-model-file type="file" accept=".glb,.gltf,model/gltf-binary" hidden />
+          </label>
+        </div>
+      </header>
+      <div data-viewer></div>
+      <p class="banner" data-banner></p>
+      <p class="error-banner" data-error hidden></p>
+    </main>
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

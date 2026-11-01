@@ -1,0 +1,269 @@
+:root {
+  color-scheme: dark;
+}
+
+ha-card {
+  display: block;
+  background: var(--ha-card-background, transparent);
+  border-radius: var(--ha-card-border-radius, 12px);
+  box-shadow: var(--ha-card-box-shadow, none);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #0e0d0c;
+  color: #f4efe6;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.app {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  color: var(--primary-text-color, #f4efe6);
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 620;
+  letter-spacing: -0.02em;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+h2 {
+  margin: 18px 0 8px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #b7ad9f;
+}
+
+h3 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.sub,
+.banner,
+.hint,
+.meta,
+.note,
+.pin-meta {
+  color: var(--secondary-text-color, #b7ad9f);
+}
+
+.sub,
+.banner {
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.files,
+.room-picker {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.file,
+.reload,
+select,
+.toggle,
+.pin {
+  font: inherit;
+}
+
+.file,
+.reload {
+  border: 1px solid rgba(244, 239, 230, 0.18);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.room-picker span {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--secondary-text-color, #b7ad9f);
+}
+
+select {
+  background: #1d1a17;
+  color: #f4efe6;
+  border: 1px solid rgba(244, 239, 230, 0.18);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: 480px;
+  height: min(72vh, 700px);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #141311;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.viewport {
+  position: relative;
+  min-width: 0;
+  min-height: 320px;
+}
+
+.viewport canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+.side {
+  box-sizing: border-box;
+  background: #1d1a17;
+  color: #f4efe6;
+  padding: 14px 14px 18px;
+  overflow: auto;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.kind {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  color: #e0b15a;
+}
+
+.entity {
+  margin: 8px 0 0;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  color: #f0a202;
+  overflow-wrap: anywhere;
+}
+
+.state {
+  margin: 6px 0 12px;
+  font-size: 1.15rem;
+}
+
+.hint,
+.note,
+.meta {
+  margin: 0 0 8px;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.note.error {
+  color: #ffb4a8;
+}
+
+.toggle {
+  background: #e39b2b;
+  color: #1a140c;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.side ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pin {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  background: transparent;
+  color: #f4efe6;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.pin[aria-current="true"] {
+  background: rgba(227, 155, 43, 0.16);
+}
+
+.pin-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pin-name {
+  font-size: 0.92rem;
+}
+
+.pin-meta {
+  font-size: 0.78rem;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.error-banner {
+  margin: 0;
+  color: #ffb4a8;
+}
+
+button:focus-visible,
+select:focus-visible {
+  outline: 2px solid #e39b2b;
+  outline-offset: 2px;
+}
+
+@media (max-width: 800px) {
+  .top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stage {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .viewport {
+    height: 420px;
+  }
+}

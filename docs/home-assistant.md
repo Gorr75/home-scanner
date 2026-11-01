@@ -118,6 +118,8 @@ Present after a multi-room combine, and on the sample apartment.
 3. Draw each pin at `position.x`, `position.z`. Use `kind` for the icon and `entity_id` for state.
 4. Do not draw room pins on top of `overview_floor_plan` unless `coordinates_are_unified` is true.
 
+[web/viewer](../web/viewer/README.md) is a static three.js page and a first-cut Lovelace card that follow this. The card's `room` option loads `/local/home_scanner/<room>/layout.json` and `model.glb`. The app upload and the `home_scanner` integration that fill that folder are not part of the viewer.
+
 ## Live state, later
 
 The app talks to device state only through `HomeStateProvider` in the `RoomScanCore` package:
