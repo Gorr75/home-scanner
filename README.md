@@ -84,6 +84,8 @@ Not connected. Pins can store an `entity_id`. States shown in the app come from 
 
 See [docs/home-assistant.md](docs/home-assistant.md).
 
+An experimental three.js viewer and Lovelace card live in [web/viewer](web/viewer/README.md). The card reads `/local/home_scanner/<room>/layout.json` and `model.glb`. The iOS upload and the `home_scanner` integration that write those files are separate.
+
 ## Tests
 
 From the repo root:
@@ -116,6 +118,6 @@ Next:
 - Set a Development Team for `se.jansson.homescan`
 - Carry pin positions through `StructureBuilder` alignment so they sit on the merged model
 - `HomeAssistantClient`: base URL, long-lived token in the Keychain, REST plus WebSocket, live state and toggle on the pins
-- A Home Assistant custom integration or card that reads `roomscan.home`
+- Wire the iOS "Send to Home Assistant" upload to the `home_scanner` integration (`/config/www/home_scanner/<room>/`). The experimental card in `web/viewer` already reads that path.
 - More than one floor, and editing walls after a scan
 - Outdoor mode: an ARKit scene mesh, and an aerial orthophoto or drone image as a site-plan underlay. Not started. See [docs/roadmap.md](docs/roadmap.md).

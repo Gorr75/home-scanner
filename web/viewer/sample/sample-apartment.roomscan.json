@@ -1,0 +1,361 @@
+{
+  "format" : "roomscan.home",
+  "home" : {
+    "created_at" : "2026-01-01T00:00:00Z",
+    "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000001",
+    "name" : "Sample apartment",
+    "pins" : [
+      {
+        "entity_id" : "light.kitchen",
+        "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000031",
+        "kind" : "light",
+        "name" : "Kitchen light",
+        "position" : {
+          "x" : 1.8,
+          "y" : 2.35,
+          "z" : 1.6
+        },
+        "room_id" : "6F0C2A10-4B1E-4E0A-9C11-000000000010"
+      },
+      {
+        "entity_id" : "light.living_room",
+        "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000032",
+        "kind" : "light",
+        "name" : "Living room light",
+        "position" : {
+          "x" : 6.2,
+          "y" : 2.35,
+          "z" : 2
+        },
+        "room_id" : "6F0C2A10-4B1E-4E0A-9C11-000000000020"
+      },
+      {
+        "entity_id" : "switch.living_room",
+        "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000033",
+        "kind" : "switch",
+        "name" : "Living room switch",
+        "position" : {
+          "x" : 4,
+          "y" : 1.15,
+          "z" : 2.15
+        },
+        "room_id" : "6F0C2A10-4B1E-4E0A-9C11-000000000020"
+      },
+      {
+        "entity_id" : "sensor.living_room_temperature",
+        "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000034",
+        "kind" : "sensor",
+        "name" : "Living room temperature",
+        "position" : {
+          "x" : 8.45,
+          "y" : 1.45,
+          "z" : 3.4
+        },
+        "room_id" : "6F0C2A10-4B1E-4E0A-9C11-000000000020"
+      }
+    ],
+    "rooms" : [
+      {
+        "assets" : {
+
+        },
+        "created_at" : "2026-01-01T00:00:00Z",
+        "floor_plan" : {
+          "floors" : [
+            {
+              "corners" : [
+                {
+                  "x" : 0,
+                  "y" : 0,
+                  "z" : 0
+                },
+                {
+                  "x" : 3.6,
+                  "y" : 0,
+                  "z" : 0
+                },
+                {
+                  "x" : 3.6,
+                  "y" : 0,
+                  "z" : 3.2
+                },
+                {
+                  "x" : 0,
+                  "y" : 0,
+                  "z" : 3.2
+                }
+              ],
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000016"
+            }
+          ],
+          "objects" : [
+            {
+              "category" : "refrigerator",
+              "center" : {
+                "x" : 0.45,
+                "y" : 0.9,
+                "z" : 2.7
+              },
+              "dimensions" : {
+                "x" : 0.7,
+                "y" : 1.8,
+                "z" : 0.7
+              },
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000017",
+              "yaw" : 0
+            },
+            {
+              "category" : "table",
+              "center" : {
+                "x" : 1.8,
+                "y" : 0.38,
+                "z" : 1.4
+              },
+              "dimensions" : {
+                "x" : 1.2,
+                "y" : 0.76,
+                "z" : 0.8
+              },
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000018",
+              "yaw" : 0
+            }
+          ],
+          "openings" : [
+            {
+              "center" : {
+                "x" : 3.6,
+                "y" : 1.05,
+                "z" : 1.6
+              },
+              "height" : 2.1,
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000015",
+              "kind" : "door",
+              "width" : 0.9,
+              "yaw" : 1.5708
+            }
+          ],
+          "walls" : [
+            {
+              "end" : {
+                "x" : 3.6,
+                "y" : 0,
+                "z" : 0
+              },
+              "height" : 2.4,
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000011",
+              "start" : {
+                "x" : 0,
+                "y" : 0,
+                "z" : 0
+              },
+              "thickness" : 0.12
+            },
+            {
+              "end" : {
+                "x" : 0,
+                "y" : 0,
+                "z" : 3.2
+              },
+              "height" : 2.4,
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000012",
+              "start" : {
+                "x" : 0,
+                "y" : 0,
+                "z" : 0
+              },
+              "thickness" : 0.12
+            },
+            {
+              "end" : {
+                "x" : 3.6,
+                "y" : 0,
+                "z" : 3.2
+              },
+              "height" : 2.4,
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000013",
+              "start" : {
+                "x" : 0,
+                "y" : 0,
+                "z" : 3.2
+              },
+              "thickness" : 0.12
+            },
+            {
+              "end" : {
+                "x" : 3.6,
+                "y" : 0,
+                "z" : 3.2
+              },
+              "height" : 2.4,
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000014",
+              "start" : {
+                "x" : 3.6,
+                "y" : 0,
+                "z" : 0
+              },
+              "thickness" : 0.12
+            }
+          ]
+        },
+        "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000010",
+        "name" : "Kitchen"
+      },
+      {
+        "assets" : {
+
+        },
+        "created_at" : "2026-01-01T00:00:00Z",
+        "floor_plan" : {
+          "floors" : [
+            {
+              "corners" : [
+                {
+                  "x" : 3.6,
+                  "y" : 0,
+                  "z" : 0
+                },
+                {
+                  "x" : 8.8,
+                  "y" : 0,
+                  "z" : 0
+                },
+                {
+                  "x" : 8.8,
+                  "y" : 0,
+                  "z" : 4
+                },
+                {
+                  "x" : 3.6,
+                  "y" : 0,
+                  "z" : 4
+                }
+              ],
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000026"
+            }
+          ],
+          "objects" : [
+            {
+              "category" : "sofa",
+              "center" : {
+                "x" : 6.6,
+                "y" : 0.4,
+                "z" : 2.8
+              },
+              "dimensions" : {
+                "x" : 2.2,
+                "y" : 0.85,
+                "z" : 0.9
+              },
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000027",
+              "yaw" : 1.5708
+            },
+            {
+              "category" : "table",
+              "center" : {
+                "x" : 6.2,
+                "y" : 0.22,
+                "z" : 1.5
+              },
+              "dimensions" : {
+                "x" : 1.1,
+                "y" : 0.42,
+                "z" : 0.6
+              },
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000028",
+              "yaw" : 0
+            }
+          ],
+          "openings" : [
+            {
+              "center" : {
+                "x" : 6.2,
+                "y" : 1.5,
+                "z" : 0
+              },
+              "height" : 1.3,
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000025",
+              "kind" : "window",
+              "width" : 1.8,
+              "yaw" : 0
+            }
+          ],
+          "walls" : [
+            {
+              "end" : {
+                "x" : 8.8,
+                "y" : 0,
+                "z" : 0
+              },
+              "height" : 2.4,
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000021",
+              "start" : {
+                "x" : 3.6,
+                "y" : 0,
+                "z" : 0
+              },
+              "thickness" : 0.12
+            },
+            {
+              "end" : {
+                "x" : 8.8,
+                "y" : 0,
+                "z" : 4
+              },
+              "height" : 2.4,
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000022",
+              "start" : {
+                "x" : 8.8,
+                "y" : 0,
+                "z" : 0
+              },
+              "thickness" : 0.12
+            },
+            {
+              "end" : {
+                "x" : 3.6,
+                "y" : 0,
+                "z" : 4
+              },
+              "height" : 2.4,
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000023",
+              "start" : {
+                "x" : 8.8,
+                "y" : 0,
+                "z" : 4
+              },
+              "thickness" : 0.12
+            },
+            {
+              "end" : {
+                "x" : 3.6,
+                "y" : 0,
+                "z" : 3.2
+              },
+              "height" : 2.4,
+              "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000024",
+              "start" : {
+                "x" : 3.6,
+                "y" : 0,
+                "z" : 4
+              },
+              "thickness" : 0.12
+            }
+          ]
+        },
+        "id" : "6F0C2A10-4B1E-4E0A-9C11-000000000020",
+        "name" : "Living room"
+      }
+    ],
+    "structure" : {
+      "built_at" : "2026-01-01T00:00:00Z",
+      "coordinates_are_unified" : true,
+      "room_ids" : [
+        "6F0C2A10-4B1E-4E0A-9C11-000000000010",
+        "6F0C2A10-4B1E-4E0A-9C11-000000000020"
+      ],
+      "usdz" : "structure.usdz"
+    },
+    "updated_at" : "2026-01-01T00:00:00Z"
+  },
+  "version" : 1
+}

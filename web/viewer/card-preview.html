@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Home Scanner card preview</title>
+    <link rel="stylesheet" href="css/viewer.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="top">
+        <div>
+          <h1>Card preview</h1>
+          <p class="sub">
+            Same Lovelace element the dashboard loads. Rooms come from
+            <span data-base></span>, the path the home_scanner integration serves.
+          </p>
+        </div>
+      </header>
+      <div data-slot></div>
+    </main>
+    <script type="module">
+      import "./home-scanner-card.js";
+
+      const params = new URLSearchParams(location.search);
+      const base = params.get("base") || "sample-rooms";
+      document.querySelector("[data-base]").textContent = base;
+      const element = document.createElement("home-scanner-card");
+      const slot = document.querySelector("[data-slot]");
+      slot.append(element);
+
+      const states = {
+        "light.kitchen": {
+          state: "on",
+          attributes: { friendly_name: "Kitchen light" },
+        },
+        "light.living_room": {
+          state: "off",
+          attributes: { friendly_name: "Living room light" },
+        },
+        "switch.living_room": {
+          state: "on",
+          attributes: { friendly_name: "Living room switch" },
+        },
+        "sensor.living_room_temperature": {
+          state: "21.5",
+          attributes: { unit_of_measurement: "°C", friendly_name: "Living room temperature" },
+        },
+      };
+
+      const hass = {
+        states,
+        async callApi() {
+          throw new Error("preview has no home_scanner API");
+        },
+        async callService(_domain, service, data) {
+          const entity = states[data.entity_id];
+          if (entity && service === "toggle" && (entity.state === "on" || entity.state === "off")) {
+            entity.state = entity.state === "on" ? "off" : "on";
+          }
+          element.hass = hass;
+        },
+      };
+
+      const config = { base };
+      if (params.get("room")) config.room = params.get("room");
+      element.setConfig(config);
+      element.hass = hass;
+
+      function publish() {
+        const root = element.shadowRoot;
+        const options = [...(root?.querySelectorAll("option") || [])].map((option) => ({
+          value: option.value,
+          label: option.textContent,
+        }));
+        const error = root?.querySelector("[data-error]")?.textContent || "";
+        const body = root?.textContent || "";
+        window.__cardReady = {
+          ok: options.length >= 2 && body.includes("Kitchen light") && body.includes("21.5") && !error,
+          options,
+          error,
+        };
+      }
+      element.addEventListener("scanner-ready", publish);
+      element.addEventListener("scanner-error", publish);
+      setInterval(publish, 300);
+    </script>
+  </body>
+</html>

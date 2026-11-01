@@ -1,0 +1,26 @@
+# Settings → Dashboards → three dots → Resources
+#   URL:  /local/home-scanner/home-scanner-card.js?v=1
+#   Type: JavaScript module
+#
+# Copy web/viewer/ to /config/www/home-scanner/ first.
+# The home_scanner integration writes scans separately:
+#   /config/www/home_scanner/<room>/layout.json
+#   /config/www/home_scanner/<room>/model.glb
+#   /config/www/home_scanner/rooms.json
+
+type: custom:home-scanner-card
+room: kitchen
+
+# Leave room unset to open the first uploaded room.
+# A picker appears when rooms.json (or GET /api/home_scanner/rooms)
+# lists more than one.
+#
+# type: custom:home-scanner-card
+#
+# Optional title, shown instead of the name inside the layout:
+# title: Ground floor
+#
+# Escape hatch while nothing has been uploaded yet. Points at the
+# sample shipped inside the viewer folder, not at an integration upload:
+# layout: /local/home-scanner/sample/sample-apartment.roomscan.json
+# model: /local/home-scanner/sample/sample-apartment.glb
