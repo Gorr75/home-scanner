@@ -2,7 +2,7 @@
 
 Home Scanner measures a home with the iPhone LiDAR scanner and keeps the result on the device. You scan one room at a time, name it, and combine several rooms into a single floor. Each scan is stored as Apple's captured-room JSON plus a USDZ model. You can orbit the model, look at a top-down plan, drop device pins on it, and share the USDZ or a JSON layout.
 
-There is no account and no cloud upload. Home Assistant is not connected. The data model and a `HomeStateProvider` seam are in place so a later build can show live entity state. The JSON contract is [docs/home-assistant.md](docs/home-assistant.md). Outdoor scanning is not in this version; see [docs/roadmap.md](docs/roadmap.md).
+There is no account. Scans stay on the iPhone until you send a floor plan to Home Assistant. Connect a base URL and a long-lived token in Settings (the token is stored in the Keychain). The JSON contract, the upload API, and install steps are in [docs/home-assistant.md](docs/home-assistant.md). Outdoor scanning is not in this version; see [docs/roadmap.md](docs/roadmap.md).
 
 Bundle id: `se.jansson.homescan`.
 
@@ -30,7 +30,11 @@ Scans are written under the app's Documents folder (`Homes/<id>/`), which the Fi
 - List homes, orbit and pinch-zoom the model in SceneKit, and pan a top-down plan.
 - Share a USDZ, or share the home as `roomscan.home` JSON.
 - On a device without LiDAR, the app explains that and still opens anything already saved, including the sample.
-- Place, move, and delete device pins. Each pin has a name, a type, a 3D position, and an optional Home Assistant `entity_id` such as `light.kitchen`.
+- Place, move, and delete device pins by tapping the 3D model or the floor plan. Each pin has a name, a type, a 3D position, and an optional Home Assistant `entity_id` such as `light.kitchen`.
+- Connect Home Assistant in Settings, test the connection, and pick an entity from the server's list while editing a pin.
+- Show live light, switch, and sensor readings on the pins. The app polls the REST API and subscribes to `state_changed` on the websocket.
+- Send the layout and a model to Home Assistant, or share a `.zip` and a floor-plan PDF.
+- Read furniture labels and dimensions, compare two scans, and lay a sensor heatmap over the plan.
 
 ## Architecture
 
@@ -40,7 +44,8 @@ HomeScanner.app       SwiftUI, RoomPlan, SceneKit
   FloorPlanExtractor  CapturedRoom -> FloorPlan
   ScanArchive         encode, USDZ export, StructureBuilder
   HomeStore           observable wrapper
-  PinBoard            asks a HomeStateProvider for mock states
+  PinBoard            asks a HomeStateProvider for mock or live states
+  Settings            base URL plus Keychain token, entity search, test connection
 
 RoomScanCore          Swift package, no UIKit and no RoomPlan
   Home, Room, FloorPlan, DevicePin
@@ -48,6 +53,7 @@ RoomScanCore          Swift package, no UIKit and no RoomPlan
   HomeRepository      on-device folders
   HomeStateProvider   protocol
   MockHomeStateProvider
+  HomeAssistantClient     REST, websocket events, upload
   UnconfiguredHomeAssistantClient
 ```
 
@@ -78,9 +84,11 @@ Coordinate notes that matter:
 
 ## Home Assistant
 
-Not connected. Pins can store an `entity_id`. States shown in the app come from `MockHomeStateProvider` (kitchen light on, living room light off, a switch on, living room temperature 21.5 °C). Toggling a light or switch changes the mock for the session.
+Until Settings has a base URL and a token, pins use `MockHomeStateProvider` (kitchen light on, living room light off, a switch on, living room temperature 21.5 °C). After you connect, `HomeAssistantClient` reads and toggles entities, and the 3D view labels each pin with its state.
 
-`UnconfiguredHomeAssistantClient` records where a future client would keep the base URL and the Keychain account for a long-lived access token. The token is not written into the home file.
+**Send to Home Assistant** uploads `layout.json`, `model.glb`, and any RoomPlan `model.usdz` to `POST /api/home_scanner/upload/<id>`. The integration in `ha/custom_components/home_scanner/` stores them at `/config/www/home_scanner/<id>/`, which the card reads as `/local/home_scanner/<id>/layout.json` and `model.glb`. **Share a .zip** writes the same folders for AirDrop or Files. A successful upload can open `homeassistant://navigate/lovelace/home-scanner`.
+
+The token is not written into the home file. Install steps are in [ha/custom_components/home_scanner/README.md](ha/custom_components/home_scanner/README.md). The file layout the web card should use is [web/viewer/README.md](web/viewer/README.md).
 
 See [docs/home-assistant.md](docs/home-assistant.md).
 
@@ -98,24 +106,35 @@ Not covered here: RoomPlan capture, USDZ loading in SceneKit, and the SwiftUI sc
 
 Xcode Cloud should use the shared `HomeScanner` scheme. `ci_scripts/ci_pre_xcodebuild.sh` runs the package tests on the Mac before `xcodebuild`. Scanning is not part of that job.
 
-## Done and next
+## Features
 
-Done in v1:
+Kept from v0.1:
 
 - Single-room LiDAR scan, naming, and on-device save (captured JSON + USDZ)
-- Multi-room combine through `StructureBuilder`
+- Multi-room combine through RoomPlan `StructureBuilder` / `CapturedStructure`
 - Home list, SceneKit model (orbit/zoom), top-down plan, USDZ share, JSON export
 - Graceful copy when LiDAR is missing, plus a sample apartment for the simulator
 - Device pins with type, position, and optional `entity_id`
-- `HomeStateProvider`, mock states, and a documented `roomscan.home` file
-- Unit tests for the model and the export
+- Unit tests for the model and the export (`swift test --package-path RoomScanCore`)
 
-Next:
+Added on top of that:
 
-- Run a scan on a LiDAR device and confirm the captured JSON round-trips and the USDZ opens
-- Set a Development Team for `se.jansson.homescan`
-- Carry pin positions through `StructureBuilder` alignment so they sit on the merged model
-- `HomeAssistantClient`: base URL, long-lived token in the Keychain, REST plus WebSocket, live state and toggle on the pins
-- A Home Assistant custom integration or card that reads `roomscan.home`
-- More than one floor, and editing walls after a scan
-- Outdoor mode: an ARKit scene mesh, and an aerial orthophoto or drone image as a site-plan underlay. Not started. See [docs/roadmap.md](docs/roadmap.md).
+- Settings for the Home Assistant base URL and a long-lived token in the Keychain, with **Test connection**
+- Tap a surface in the 3D model or the plan to place a pin, then pick an entity from the Home Assistant list
+- Live state on the model and the plan (REST polling plus a `state_changed` websocket)
+- **Send to Home Assistant**, a `.zip` share, and a companion-app link. The `home_scanner` integration is included
+- Furniture labels and dimensions from RoomPlan categories
+- Floor area, wall lengths, door widths, and a PDF export
+- Re-scan diff: added, removed, and moved objects, with the option to replace the room
+- A sensor heatmap interpolated across numeric pin readings
+
+## Limits
+
+- A real combine still does not move existing pins into the merged coordinate space. `structure.coordinates_are_unified` stays false. Use a room folder when a card should draw pins on that room's model.
+- `model.glb` is built from the measured floor plan (walls, floors, openings, objects). It is not a conversion of the RoomPlan USDZ. The USDZ is uploaded beside it when the scan has one.
+- The websocket and the upload need a reachable Home Assistant. This repo's tests use a scripted HTTP transport, not a live server.
+- The PDF is a measured drawing (area, lengths, a wall sketch). It is not a snapshot of the SwiftUI canvas.
+- The heatmap only uses readings that parse as numbers, so lights that are `on` or `off` are not heat sources.
+- Outdoor mode is not started. See [docs/roadmap.md](docs/roadmap.md).
+
+Xcode is not run in this environment. Review notes for the Xcode Cloud job (Swift 5, iOS 26 SDK): new files are inside the synchronized `RoomScan` group, so they join the target automatically. Keychain, SceneKit labels, and the PDF renderer are iOS-only and are not part of `swift test`. Local HTTP to Home Assistant depends on `NSAllowsLocalNetworking` and the local-network usage string in the generated Info.plist. The app icon was not changed.
