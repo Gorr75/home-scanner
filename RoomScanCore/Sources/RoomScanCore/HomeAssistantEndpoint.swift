@@ -269,6 +269,10 @@ public enum EntitySearch {
 }
 
 enum HomeAssistantDecoding {
+    static func entity(from dictionary: [String: Any]) -> HAEntityRecord? {
+        record(from: dictionary)
+    }
+
     static func records(from data: Data) throws -> [HAEntityRecord] {
         let object = try jsonObject(data)
         if let list = object as? [Any] {

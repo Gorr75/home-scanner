@@ -106,6 +106,7 @@ struct RoomDetailView: View {
                 pins: pins,
                 showPins: true,
                 stateByEntity: pinBoard.stateMap(for: pins),
+                captionByPin: pinBoard.captions(for: pins),
                 selectedPinID: selectedPinID,
                 placementEnabled: placing,
                 cameraToken: cameraToken,
@@ -124,6 +125,8 @@ struct RoomDetailView: View {
             showPins: true,
             selectedPinID: selectedPinID,
             placing: placing,
+            pinCaptions: pinBoard.captions(for: pins),
+            pinStates: pinBoard.states(for: pins),
             onSelectPin: { selectedPinID = $0 },
             onMovePin: { id, x, z in move(id, x: x, z: z) },
             onCreate: { x, z in

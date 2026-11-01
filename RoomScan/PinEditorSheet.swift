@@ -86,12 +86,14 @@ struct PinEditorSheet: View {
                     }
                 }
                 if let snapshot {
-                    Section("Sample state") {
+                    Section(assistant.isConfigured ? "Home Assistant" : "Sample state") {
                         LabeledContent("State", value: snapshot.displayState)
                         if snapshot.isToggleable {
                             Button(snapshot.isOn ? "Turn off" : "Turn on", action: onToggle)
                         }
-                        Text("This reading is mock data, not a live Home Assistant state.")
+                        Text(assistant.isConfigured
+                            ? "This reading comes from Home Assistant."
+                            : "This reading is mock data, not a live Home Assistant state.")
                             .font(.footnote)
                             .foregroundStyle(Theme.secondary)
                     }

@@ -94,6 +94,8 @@ struct HomeViewer: View {
                 showPins: showsPins(home),
                 selectedPinID: selectedPinID,
                 placing: placing && showsPins(home),
+                pinCaptions: pinBoard.captions(for: home.pins),
+                pinStates: pinBoard.states(for: home.pins),
                 onSelectPin: { selectedPinID = $0 },
                 onMovePin: { id, x, z in move(id, x: x, z: z) },
                 onCreate: { x, z in create(in: home, x: x, z: z, y: placeKind.defaultHeight) }
@@ -105,6 +107,7 @@ struct HomeViewer: View {
                 pins: home.pins,
                 showPins: showsPins(home),
                 stateByEntity: pinBoard.stateMap(for: home.pins),
+                captionByPin: pinBoard.captions(for: home.pins),
                 selectedPinID: selectedPinID,
                 placementEnabled: placing && showsPins(home),
                 cameraToken: cameraToken,

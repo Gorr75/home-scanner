@@ -7,6 +7,8 @@ struct FloorPlanCanvas: View {
     var showPins: Bool
     var selectedPinID: UUID?
     var placing: Bool
+    var pinCaptions: [UUID: String] = [:]
+    var pinStates: [UUID: String] = [:]
     var interactive: Bool = true
     var onSelectPin: (UUID?) -> Void = { _ in }
     var onMovePin: (UUID, Double, Double) -> Void = { _, _, _ in }
@@ -277,6 +279,15 @@ struct FloorPlanCanvas: View {
             let rect = CGRect(x: screen.x - radius, y: screen.y - radius, width: radius * 2, height: radius * 2)
             context.fill(Path(ellipseIn: rect), with: .color(pinColor(pin)))
             context.stroke(Path(ellipseIn: rect), with: .color(.white), lineWidth: selected ? 2 : 1)
+            if let caption = pinCaptions[pin.id], !caption.isEmpty {
+                context.draw(
+                    Text(caption)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(Theme.ink),
+                    at: CGPoint(x: screen.x + radius + 4, y: screen.y),
+                    anchor: .leading
+                )
+            }
         }
     }
 
@@ -296,8 +307,12 @@ struct FloorPlanCanvas: View {
     }
 
     private func pinColor(_ pin: DevicePin) -> Color {
-        guard pin.entityId != nil else { return Theme.accent }
-        return Theme.ink
+        guard let state = pinStates[pin.id] else {
+            return pin.entityId == nil ? Theme.accent : Theme.ink
+        }
+        if state == "on" { return Color(red: 0.18, green: 0.55, blue: 0.32) }
+        if state == "off" { return Theme.secondary }
+        return Color(red: 0.20, green: 0.38, blue: 0.55)
     }
 
     private func point(_ value: (x: Double, y: Double)) -> CGPoint {

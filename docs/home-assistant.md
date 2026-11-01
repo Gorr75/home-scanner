@@ -118,7 +118,7 @@ Present after a multi-room combine, and on the sample apartment.
 3. Draw each pin at `position.x`, `position.z`. Use `kind` for the icon and `entity_id` for state.
 4. Do not draw room pins on top of `overview_floor_plan` unless `coordinates_are_unified` is true.
 
-## Live state, later
+## Live state
 
 The app talks to device state only through `HomeStateProvider` in the `RoomScanCore` package:
 
@@ -132,29 +132,26 @@ func perform(_ action: EntityAction, entityId: String) async throws -> EntitySna
 
 `EntitySnapshot` is `entity_id`, `state`, `domain`, optional `unit`, and optional `friendly_name`. The mock treats `light`, `switch`, and `fan` as on/off. A temperature sensor is a reading (`21.5` with unit `°C`) and refuses toggle.
 
-v1 always uses `MockHomeStateProvider`. The screen says the numbers are sample data on the phone.
+Until Settings has a base URL and a long-lived token, the app uses `MockHomeStateProvider` and the screen says the numbers are sample data on the phone. After you connect, `HomeAssistantClient` loads states with `GET /api/states`, calls services with `POST /api/services/{domain}/{action}`, and opens a WebSocket at `/api/websocket` for `state_changed`. Polling every few seconds keeps the pins current if the socket drops. Lights, switches, and fans can be toggled. Sensor readings, including temperature, are shown on the pin and in the 3D view.
 
-`UnconfiguredHomeAssistantClient` is the empty stand-in for the real client. It holds:
+`UnconfiguredHomeAssistantClient` remains the stand-in that throws `notConfigured`. The configured client is `HomeAssistantClient`. Settings stores:
 
-- `baseURL`, for example `http://homeassistant.local:8123`
-- `tokenAccount`, the Keychain account name
+- the base URL, for example `http://homeassistant.local:8123`, in UserDefaults
+- the long-lived access token in the Keychain
 
-Suggested Keychain item, not implemented yet:
+Keychain item:
 
 - service: `se.jansson.homescan.homeassistant`
 - account: `access-token`
 - secret: a Home Assistant long-lived access token
-
-The client should map the protocol onto Home Assistant like this:
 
 | Call | Home Assistant |
 | --- | --- |
 | `snapshot` | `GET {baseURL}/api/states/{entity_id}` with `Authorization: Bearer <token>` |
 | `turn_on` / `turn_off` / `toggle` | `POST {baseURL}/api/services/{domain}/{action}` with body `{"entity_id": "<id>"}` |
 | Push updates | WebSocket `{baseURL}/api/websocket`, authenticate with the token, then `subscribe_events` for `state_changed` |
+| Test connection | `GET {baseURL}/api` and `GET {baseURL}/api/config`, then `GET {baseURL}/api/home_scanner/health` |
 
-Normalize cover and lock states in that client (`open` / `closed`, `locked` / `unlocked`). The mock does not pretend those domains toggle.
-
-Settings for the base URL and token belong in that future client, not in `home.json`.
+Cover and lock keep their Home Assistant states (`open` / `closed`, `locked` / `unlocked`). The app does not toggle those domains. The base URL and the token stay out of `home.json`.
 
 The format id stays `roomscan.home`. The app on the home screen is Home Scanner. Outdoor site plans are a later addition and are not part of this file yet. See [roadmap.md](roadmap.md).
