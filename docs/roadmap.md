@@ -1,6 +1,6 @@
-# Roadmap
+# Outdoor site plan
 
-Home Scanner v1 scans indoor rooms with RoomPlan. The items below are not built.
+Feature order for the app lives in [ROADMAP.md](../ROADMAP.md). This note is only the outdoor design. It is not built.
 
 ## Outdoor mode
 

@@ -2,7 +2,7 @@
 
 Home Scanner measures a home with the iPhone LiDAR scanner and keeps the result on the device. You scan one room at a time, name it, and combine several rooms into a single floor. Each scan is stored as Apple's captured-room JSON plus a USDZ model. You can orbit the model, look at a top-down plan, drop device pins on it, and share the USDZ or a JSON layout.
 
-There is no account. Scans stay on the iPhone until you send a floor plan to Home Assistant. Connect a base URL and a long-lived token in Settings (the token is stored in the Keychain). The JSON contract, the upload API, and install steps are in [docs/home-assistant.md](docs/home-assistant.md). Outdoor scanning is not in this version; see [docs/roadmap.md](docs/roadmap.md).
+There is no account. Scans stay on the iPhone until you send a floor plan to Home Assistant. Connect a base URL and a long-lived token in Settings (the token is stored in the Keychain). The JSON contract, the upload API, and install steps are in [docs/home-assistant.md](docs/home-assistant.md). What comes next is [ROADMAP.md](ROADMAP.md). Outdoor scanning is not in this version; the site-plan design is in [docs/roadmap.md](docs/roadmap.md).
 
 Bundle id: `se.jansson.homescan`.
 
@@ -60,7 +60,7 @@ RoomScanCore          Swift package, no UIKit and no RoomPlan
 
 The HomeScanner target links the local package `RoomScanCore`. The package keeps its current name. Unit tests live there so they run with `swift test` and do not need a simulator.
 
-Indoor RoomPlan is the only scan source today. A yard or facade would be a different source (an ARKit mesh, plus an aerial photo as a site underlay). That is described in the roadmap and is not implemented. Pins, the home document, and the state provider stay the shared model either way.
+Indoor RoomPlan is the only scan source today. A yard or facade would be a different source (an ARKit mesh, plus an aerial photo as a site underlay). That design is in [docs/roadmap.md](docs/roadmap.md) and is listed under Later in [ROADMAP.md](ROADMAP.md). It is not implemented. Pins, the home document, and the state provider stay the shared model either way.
 
 SceneKit is the viewer: it loads a RoomPlan USDZ when one exists, and otherwise builds walls and floors from the measured plan. Orbit and zoom use SceneKit's camera controller. Pins are hit-tested in that scene and on the plan.
 
@@ -137,6 +137,6 @@ Added on top of that:
 - The websocket and the upload need a reachable Home Assistant. This repo's tests use a scripted HTTP transport, not a live server.
 - The PDF is a measured drawing (area, lengths, a wall sketch). It is not a snapshot of the SwiftUI canvas.
 - The heatmap only uses readings that parse as numbers, so lights that are `on` or `off` are not heat sources.
-- Outdoor mode is not started. See [docs/roadmap.md](docs/roadmap.md).
+- Outdoor mode is not started. The feature list is [ROADMAP.md](ROADMAP.md). The site-plan design is in [docs/roadmap.md](docs/roadmap.md).
 
 Xcode is not run in this environment. Review notes for the Xcode Cloud job (Swift 5, iOS 26 SDK): new files are inside the synchronized `RoomScan` group, so they join the target automatically. Keychain, SceneKit labels, and the PDF renderer are iOS-only and are not part of `swift test`. Local HTTP to Home Assistant depends on `NSAllowsLocalNetworking` and the local-network usage string in the generated Info.plist. The app icon was not changed.
