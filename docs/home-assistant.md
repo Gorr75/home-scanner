@@ -1,6 +1,6 @@
 # Home Assistant layout format
 
-Home Scanner stores the shape of a home and the devices you place in it. It can export that as one JSON document, show live entity state, and upload the layout plus a model to Home Assistant. The Lovelace card reads the uploaded files. See the upload section below and `web/viewer/README.md`.
+Home Scanner stores the shape of a home and the devices you place in it. It can export that as one JSON document, show live entity state, and upload the layout plus a model to Home Assistant. The Lovelace card reads the uploaded files. See the upload section below, `web/home-scanner-card/README.md`, and `web/viewer/README.md`.
 
 Nothing in the file is a credential. Do not put a long-lived access token, a base URL password, or any other secret in this JSON.
 
@@ -131,9 +131,9 @@ Present after a multi-room combine, and on the sample apartment.
 
 **Share a .zip** builds the same tree (`home_scanner/<id>/...`) for the iOS share sheet. Unzip it into `/config/www/` if the integration is not installed yet.
 
-After a successful upload the app opens `homeassistant://navigate/lovelace/home-scanner` in the Home Assistant companion app. Create a Lovelace view with path `home-scanner`.
+After a successful upload the app opens `homeassistant://navigate/lovelace/home-scanner` in the Home Assistant companion app. Create a Lovelace view with path `home-scanner` and add `custom:home-scanner-card`. The integration writes `/config/www/home_scanner/index.json` and answers `GET /api/home_scanner/rooms` so the card can list folders. `GET /api/home_scanner/health` is unchanged.
 
-Install steps, the health check, and a dashboard example are in [ha/custom_components/home_scanner/README.md](../ha/custom_components/home_scanner/README.md).
+Install steps, the health check, and a dashboard example are in [ha/custom_components/home_scanner/README.md](../ha/custom_components/home_scanner/README.md). The card install is in [web/home-scanner-card/README.md](../web/home-scanner-card/README.md).
 
 Test connection calls `GET /api`, `GET /api/config`, and `GET /api/home_scanner/health`.
 
@@ -149,7 +149,7 @@ func perform(_ action: EntityAction, entityId: String) async throws -> EntitySna
 
 `EntityAction` is `turn_on`, `turn_off`, or `toggle`.
 
-`EntitySnapshot` is `entity_id`, `state`, `domain`, optional `unit`, and optional `friendly_name`. The mock treats `light`, `switch`, and `fan` as on/off. A temperature sensor is a reading (`21.5` with unit `°C`) and refuses toggle.
+`EntitySnapshot` is `entity_id`, `state`, `domain`, optional `unit`, optional `friendly_name`, and for lights an optional brightness (0...1) plus RGB channels. Those come from `brightness` (0...255), `rgb_color`, `hs_color`, or colour temperature on the state attributes. The mock treats `light`, `switch`, and `fan` as on/off. A temperature sensor is a reading (`21.5` with unit `°C`) and refuses toggle. `setBrightness` calls `light.turn_on` with `brightness` 1...255, or `turn_off` at zero. Area names for auto-place come from `POST /api/template` using `area_name(entity_id)`. If that call fails, matching falls back to the friendly name and the entity id.
 
 Until Settings has a base URL and a long-lived token, the app uses `MockHomeStateProvider` and the screen says the numbers are sample data on the phone. After you connect, `HomeAssistantClient` loads states with `GET /api/states`, calls services with `POST /api/services/{domain}/{action}`, and opens a WebSocket at `/api/websocket` for `state_changed`. Polling every few seconds keeps the pins current if the socket drops. Lights, switches, and fans can be toggled. Sensor readings, including temperature, are shown on the pin and in the 3D view.
 

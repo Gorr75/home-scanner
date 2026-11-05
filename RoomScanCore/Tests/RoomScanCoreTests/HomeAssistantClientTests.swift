@@ -174,6 +174,61 @@ final class HomeAssistantClientTests: XCTestCase {
         }
     }
 
+    func testBrightnessPosts255ScaleAndAreasComeFromTheTemplate() async throws {
+        let transport = ScriptedTransport { request in
+            let path = Self.serverPath(request)
+            if path == "/api/states/light.kitchen" {
+                return HTTPResponse(statusCode: 200, data: Data(#"""
+                {"entity_id":"light.kitchen","state":"on","attributes":{"brightness":255,"rgb_color":[255,0,0]}}
+                """#.utf8))
+            }
+            if path == "/api/services/light/turn_on" {
+                let body = try XCTUnwrap(request.httpBody)
+                let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                XCTAssertEqual(json["brightness"] as? Int, 128)
+                return HTTPResponse(statusCode: 200, data: Data(#"""
+                [{"entity_id":"light.kitchen","state":"on","attributes":{"brightness":128,"rgb_color":[255,0,0]}}]
+                """#.utf8))
+            }
+            if path == "/api/services/light/turn_off" {
+                return HTTPResponse(statusCode: 200, data: Data(#"""
+                [{"entity_id":"light.kitchen","state":"off","attributes":{"friendly_name":"Kitchen"}}]
+                """#.utf8))
+            }
+            if path == "/api/states/sensor.living_room_temperature" {
+                return HTTPResponse(statusCode: 200, data: Data(#"""
+                {"entity_id":"sensor.living_room_temperature","state":"21.5","attributes":{"unit_of_measurement":"°C"}}
+                """#.utf8))
+            }
+            if path == "/api/template" {
+                XCTAssertEqual(request.httpMethod, "POST")
+                let body = try XCTUnwrap(request.httpBody)
+                let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                XCTAssertTrue((json["template"] as? String)?.contains("area_name") == true)
+                return HTTPResponse(
+                    statusCode: 200,
+                    data: Data("light.kitchen\tKitchen\nlight.hall\t\n".utf8)
+                )
+            }
+            return HTTPResponse(statusCode: 404, data: Data())
+        }
+        let client = client(transport)
+        let dimmed = try await client.setBrightness(0.5, entityId: "light.kitchen")
+        XCTAssertEqual(dimmed.state, "on")
+        XCTAssertEqual(dimmed.brightness ?? -1, 128.0 / 255, accuracy: 0.001)
+        XCTAssertEqual(dimmed.red ?? -1, 1, accuracy: 0.001)
+        let off = try await client.setBrightness(0, entityId: "light.kitchen")
+        XCTAssertEqual(off.state, "off")
+        let areas = try await client.areaNamesByEntity()
+        XCTAssertEqual(areas, ["light.kitchen": "Kitchen"])
+        do {
+            _ = try await client.setBrightness(0.4, entityId: "sensor.living_room_temperature")
+            XCTFail("Expected a sensor to refuse brightness")
+        } catch HomeStateError.notToggleable {
+            // expected
+        }
+    }
+
     private func client(_ transport: ScriptedTransport) -> HomeAssistantClient {
         HomeAssistantClient(
             endpoint: HomeAssistantEndpoint(

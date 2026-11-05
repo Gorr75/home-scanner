@@ -132,6 +132,48 @@ public actor HomeAssistantClient: HomeStateProvider {
         return try await snapshot(for: id)
     }
 
+    /// Area names from the template API (`area_name`). Keys are canonical entity ids.
+    /// Entities with no area are omitted. A JSON error body is rejected.
+    public func areaNamesByEntity() async throws -> [String: String] {
+        let body = try JSONSerialization.data(withJSONObject: ["template": HomeAssistantAPI.areaNameTemplate])
+        let response = try await send(
+            path: HomeAssistantAPI.template,
+            method: "POST",
+            body: body,
+            contentType: "application/json"
+        )
+        return try HomeAssistantDecoding.areaNames(from: response.data)
+    }
+
+    /// `level` is 0...1. Zero turns the light off. Home Assistant receives `brightness` as 1...255.
+    public func setBrightness(_ level: Double, entityId: String) async throws -> EntitySnapshot {
+        let id = try requireID(entityId)
+        let current = try await snapshot(for: id)
+        guard current.domain == "light" else {
+            throw HomeStateError.notToggleable(current.entityId)
+        }
+        let clamped = min(1, max(0, level))
+        if clamped <= 0.004 {
+            return try await perform(.turnOff, entityId: id)
+        }
+        let haBrightness = max(1, min(255, Int((clamped * 255).rounded())))
+        let body = try JSONSerialization.data(withJSONObject: [
+            "entity_id": id,
+            "brightness": haBrightness
+        ])
+        let response = try await send(
+            path: HomeAssistantAPI.service(domain: "light", action: EntityAction.turnOn.rawValue),
+            method: "POST",
+            body: body,
+            contentType: "application/json"
+        )
+        if let records = try? HomeAssistantDecoding.records(from: response.data),
+           let match = records.first(where: { $0.entityId == id }) {
+            return match.snapshot
+        }
+        return try await snapshot(for: id)
+    }
+
     @discardableResult
     func send(
         path: String,

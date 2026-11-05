@@ -28,6 +28,8 @@ struct RoomDetailView: View {
     @State private var compareRoomID: UUID?
     @State private var showHeat = false
     @State private var texturing = false
+    @State private var pendingPlacements: [DevicePin] = []
+    @State private var confirmAutoPlace = false
     @Environment(\.dismiss) private var dismiss
 
     private enum Page: String, CaseIterable, Identifiable {
@@ -112,6 +114,18 @@ struct RoomDetailView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .confirmationDialog(
+            pendingPlacements.count == 1
+                ? "Add 1 device from Home Assistant?"
+                : "Add \(pendingPlacements.count) devices from Home Assistant?",
+            isPresented: $confirmAutoPlace,
+            titleVisibility: .visible
+        ) {
+            Button("Add devices") { commitAutoPlace() }
+            Button("Cancel", role: .cancel) { pendingPlacements = [] }
+        } message: {
+            Text(DeviceAutoPlace.confirmDetail)
+        }
         .alert("Sent to Home Assistant", isPresented: $showUploaded) {
             Button("Open Home Assistant") { openCompanion() }
             Button("OK", role: .cancel) {}
@@ -152,12 +166,13 @@ struct RoomDetailView: View {
                 usdzURL: store.roomModelURL(in: home, room: room),
                 pins: pins,
                 showPins: true,
-                stateByEntity: pinBoard.stateMap(for: pins),
+                looksByEntity: pinBoard.looksByEntity(for: pins),
                 captionByPin: pinBoard.captions(for: pins),
                 selectedPinID: selectedPinID,
                 placementEnabled: placing,
                 cameraToken: cameraToken,
                 onSelectPin: { selectedPinID = $0 },
+                onTogglePin: { togglePin($0) },
                 onPlace: { place(at: $0, in: room) },
                 onRenderedUSDZ: { renderedUSDZ = $0 },
                 surfacePaints: TexturePaints.forRoom(room, homeId: homeID, store: store)
@@ -174,7 +189,7 @@ struct RoomDetailView: View {
             selectedPinID: selectedPinID,
             placing: placing,
             pinCaptions: pinBoard.captions(for: pins),
-            pinStates: pinBoard.states(for: pins),
+            pinLooks: pinBoard.looksByPin(for: pins),
             heatSamples: showHeat ? heatSamples(in: room) : [],
             onCharcoal: true,
             onSelectPin: { selectedPinID = $0 },
@@ -258,6 +273,7 @@ struct RoomDetailView: View {
                 let ids = offsets.map { pins[$0].id }
                 ids.forEach(deletePin)
             }
+            Button("Place devices from Home Assistant") { proposeAutoPlace() }
             Text(pinBoard.banner)
                 .font(.footnote)
                 .foregroundStyle(Theme.secondary)
@@ -282,39 +298,28 @@ struct RoomDetailView: View {
 
     private func captionText(_ room: Room) -> String {
         if placing { return "Tap a surface to place a \(placeKind.label.lowercased())." }
-        if renderedUSDZ { return "Drag to orbit · Pinch to zoom" }
+        if renderedUSDZ { return "Tap a light, switch, or fan to toggle it · Drag to orbit" }
         if room.assets.usdz == nil {
-            return "Measured plan · Drag to orbit · Pinch to zoom"
+            return "Measured plan · Tap a light to toggle it · Drag to orbit"
         }
-        return "USDZ didn't open, so this is the measured plan."
+        return "USDZ didn't open, so this is the measured plan. Tap a light to toggle it."
     }
 
     private func selectionBar(_ pin: DevicePin) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: pin.kind.symbolName)
-                .foregroundStyle(viewing ? Theme.accentOnCharcoal : Theme.accent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(pin.name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(viewing ? Theme.chalk : Theme.ink)
-                Text(pinBoard.snapshot(for: pin)?.displayState ?? pin.entityId ?? "Not linked")
-                    .font(.caption)
-                    .foregroundStyle(viewing ? Theme.mist : Theme.secondary)
-            }
-            Spacer()
-            if let snapshot = pinBoard.snapshot(for: pin), snapshot.isToggleable {
-                Button(snapshot.isOn ? "Turn off" : "Turn on") {
-                    Task { await pinBoard.toggle(pin) }
-                }
-                .buttonStyle(.bordered)
-            }
-            Button("Edit") { editor = pin }
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.accent)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(viewing ? Theme.navy : Theme.card)
+        PinSelectionBar(
+            pin: pin,
+            snapshot: pinBoard.snapshot(for: pin),
+            onCharcoal: viewing,
+            onToggle: { Task { await pinBoard.toggle(pin) } },
+            onBrightness: { level in Task { await pinBoard.setBrightness(level, pin: pin) } },
+            onEdit: { editor = pin }
+        )
+    }
+
+    private func togglePin(_ id: UUID) {
+        guard let pin = pins.first(where: { $0.id == id }) else { return }
+        guard pinBoard.snapshot(for: pin)?.isToggleable == true else { return }
+        Task { await pinBoard.toggle(pin) }
     }
 
     @ToolbarContentBuilder
@@ -333,6 +338,7 @@ struct RoomDetailView: View {
                 Button("Add \(placeKind.label.lowercased()) at the center") {
                     addAtCenter()
                 }
+                Button("Place devices from Home Assistant") { proposeAutoPlace() }
                 Divider()
                 Button(showHeat ? "Hide sensor heatmap" : "Show sensor heatmap") { showHeat.toggle() }
                 Button("Wall photos") { texturing = true }
@@ -368,6 +374,38 @@ struct RoomDetailView: View {
 
     private var errorPresented: Binding<Bool> {
         Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+    }
+
+    private func proposeAutoPlace() {
+        guard let home else { return }
+        guard assistant.isConfigured, let client = assistant.makeClient() else {
+            errorMessage = "Add the Home Assistant URL and a long-lived token in Settings, then place devices again."
+            showSettings = true
+            return
+        }
+        Task {
+            do {
+                let pins = try await DeviceAutoPlace.propose(home: home, roomID: roomID, client: client)
+                if pins.isEmpty {
+                    errorMessage = "No unmatched devices lined up with this room. An area, a friendly name, or the entity id needs to match the room name. Pins you already linked stay put."
+                } else {
+                    pendingPlacements = pins
+                    confirmAutoPlace = true
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func commitAutoPlace() {
+        let pins = pendingPlacements
+        pendingPlacements = []
+        mutate { home in
+            for pin in pins {
+                home.upsertPin(pin)
+            }
+        }
     }
 
     private func place(at point: Vec3, in room: Room) {

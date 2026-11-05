@@ -1,22 +1,22 @@
 # Roadmap
 
-This is the feature list after the current app. Nothing here is scheduled, and none of it is implemented in this change.
+Phone upload to Home Assistant is already live. The app reads entity state over REST and a WebSocket, and the optional `home_scanner` integration accepts `GET /api/home_scanner/health` and `POST /api/home_scanner/upload/{room}`. Layouts land at `/local/home_scanner/<id>/layout.json`, `model.glb`, and an optional `model.usdz`.
 
-The groups come from products that already sit next to Home Assistant, and from a hand-drawn plan editor:
+A productized Lovelace card was still missing. Dashboards that iframe `/local/home_scanner/viewer.html` are hand-wired. The card, live light colour in the 3D view, and placing pins from areas are the immediate track, in that order. The v0.3–v0.5 and Later lists stay. They are not the work to do first.
 
-- [Vulpo Lumen](https://vulpo.app/features/lumen-3d), a Home Assistant companion with RoomPlan rooms. The 3D view, coloured lights, furniture catalog, dollhouse, and iCloud sync are Pro features there.
-- [shmuelzon/home-assistant-floor-plan](https://github.com/shmuelzon/home-assistant-floor-plan), a Sweet Home 3D plugin that pre-renders picture-elements floor plans for Lovelace.
-- The public plan-editor demo from 0xProbability (House Control on X): rooms drawn as boxes with handles, snap guides, and openings that slide along a wall. That pattern is geometry only. Device control stays with the Home Assistant work above.
+## Now
+
+1. **Lovelace Home Scanner card.** A custom card discovers rooms under `/local/home_scanner/` (an index written by the integration, `GET /api/home_scanner/rooms`, or an explicit list in the card config) and opens the 3D viewer for the selected folder. That replaces a hand-wired iframe dashboard. The upload contract is unchanged: `layout.json` and `model.glb` in each home or room folder. `viewer.html` remains a static page for an existing iframe.
+2. **Live light colour and brightness in the app 3D view.** Pins use the colour and brightness already present on the Home Assistant state (`rgb_color`, `hs_color`, or colour temperature, plus `brightness`), not only on/off text. A tap on the in-scene label or pin toggles a light, switch, or fan. Dimming stays on the selection bar, which is the control that was already next to the model.
+3. **Auto-place pins from areas and names.** Linking is still manual when you want it. When you ask, the app suggests pins in the room whose name matches the Home Assistant area, the friendly name, or the entity id. Pins you already linked stay where you put them.
+
+Direct Home Assistant WebSocket mode from the old v0.3 list is already in the app. The integration stays optional and is only required to upload a layout or to publish the room index the card reads.
 
 ## v0.3
 
-The app already reads Home Assistant over REST and a WebSocket. v0.3 makes that room usable without the custom integration, and makes lights look like their entities.
+What remains from this version after the Now list:
 
-- **Direct Home Assistant WebSocket mode.** A base URL and a long-lived token already drive live state, so the `home_scanner` integration stays optional and is only required to upload a layout or serve the card.
-- **Lights drawn with real colour and brightness.** Pins show on/off text today, and the same state payload carries colour and brightness the 3D view can draw.
 - **Daylight by time of day.** Once the room reacts to light colour, the clock can tint the scene without a second art pipeline.
-- **Controls on the label in the scene.** Toggles already live on the pin sheet, and a tap on the label should dim a light or start media without leaving the model.
-- **Lights grouped by room, icons placed from names and areas.** Entity ids are linked by hand today, and Home Assistant areas and friendly names can drop the first pins into the matching room.
 
 ## v0.4
 
@@ -50,11 +50,19 @@ These need another navigation model, a heavier renderer, or another device.
 - **iCloud sync to an iPad or Mac viewer.** The phone is the scanner, and other devices only need to open the same home.
 - **Outdoor site plan.** A yard or facade stays a separate source: an ARKit mesh plus a drone or aerial photo as an underlay. The design is in [docs/roadmap.md](docs/roadmap.md).
 
+## Where this list came from
+
+The groups come from products that already sit next to Home Assistant, and from a hand-drawn plan editor:
+
+- [Vulpo Lumen](https://vulpo.app/features/lumen-3d), a Home Assistant companion with RoomPlan rooms. The 3D view, coloured lights, furniture catalog, dollhouse, and iCloud sync are Pro features there.
+- [shmuelzon/home-assistant-floor-plan](https://github.com/shmuelzon/home-assistant-floor-plan), a Sweet Home 3D plugin that pre-renders picture-elements floor plans for Lovelace.
+- The public plan-editor demo from 0xProbability (House Control on X): rooms drawn as boxes with handles, snap guides, and openings that slide along a wall. That pattern is geometry only. Device control stays with the Home Assistant work above.
+
 ## What we keep
 
 These are already in Home Scanner, or designed for it, and they are the reason not to become a thin Lumen or Sweet Home 3D clone.
 
-- **Home Assistant-native card and `roomscan.home` JSON.** The layout file and the optional `home_scanner` upload are the contract a Lovelace card reads at `/local/home_scanner/<id>/`.
+- **Home Assistant-native card and `roomscan.home` JSON.** The layout file and the optional `home_scanner` upload are the contract. The card in `web/home-scanner-card/` reads `/local/home_scanner/<id>/`. `web/viewer/viewer.html` is the static page an existing iframe can keep using.
 - **Outdoor site plan and drone underlay.** Planned, and written up separately from indoor RoomPlan. See [docs/roadmap.md](docs/roadmap.md).
 - **Photo textures.** Library, camera, Files, and in-scan frames project onto walls and floors and ship inside the GLB and USDZ.
 - **Re-scan diff.** A second scan of a room marks objects added, removed, or moved.

@@ -6,19 +6,33 @@ public struct EntitySnapshot: Equatable, Sendable, Codable {
     public var domain: String
     public var unit: String?
     public var friendlyName: String?
+    /// Home Assistant `brightness` scaled to 0...1. Lights only.
+    public var brightness: Double?
+    /// Colour channels 0...1, from `rgb_color`, `hs_color`, or colour temperature.
+    public var red: Double?
+    public var green: Double?
+    public var blue: Double?
 
     public init(
         entityId: String,
         state: String,
         domain: String,
         unit: String? = nil,
-        friendlyName: String? = nil
+        friendlyName: String? = nil,
+        brightness: Double? = nil,
+        red: Double? = nil,
+        green: Double? = nil,
+        blue: Double? = nil
     ) {
         self.entityId = entityId
         self.state = state
         self.domain = domain
         self.unit = unit
         self.friendlyName = friendlyName
+        self.brightness = brightness
+        self.red = red
+        self.green = green
+        self.blue = blue
     }
 
     public static let toggleableDomains: Set<String> = ["light", "switch", "fan"]
@@ -32,6 +46,13 @@ public struct EntitySnapshot: Equatable, Sendable, Codable {
     }
 
     public var displayState: String {
+        if domain == "light" {
+            if state == "on", let brightness {
+                let percent = Int((min(1, max(0, brightness)) * 100).rounded())
+                return "on \(percent)%"
+            }
+            return state
+        }
         if let unit, !unit.isEmpty {
             return "\(state) \(unit)"
         }
@@ -70,6 +91,8 @@ public protocol HomeStateProvider: Sendable {
     func snapshot(for entityId: String) async throws -> EntitySnapshot
     func snapshots(for entityIds: [String]) async throws -> [EntitySnapshot]
     func perform(_ action: EntityAction, entityId: String) async throws -> EntitySnapshot
+    /// Sets a light's brightness (0...1). `0` turns the light off. Other domains throw.
+    func setBrightness(_ level: Double, entityId: String) async throws -> EntitySnapshot
 }
 
 extension HomeStateProvider {
@@ -86,7 +109,16 @@ extension HomeStateProvider {
 /// Home Assistant connection exists. Remembers toggles for the session.
 public actor MockHomeStateProvider: HomeStateProvider {
     public static let sampleSeed: [EntitySnapshot] = [
-        EntitySnapshot(entityId: "light.kitchen", state: "on", domain: "light", friendlyName: "Kitchen light"),
+        EntitySnapshot(
+            entityId: "light.kitchen",
+            state: "on",
+            domain: "light",
+            friendlyName: "Kitchen light",
+            brightness: 0.8,
+            red: 1,
+            green: 0.72,
+            blue: 0.35
+        ),
         EntitySnapshot(entityId: "light.living_room", state: "off", domain: "light", friendlyName: "Living room light"),
         EntitySnapshot(entityId: "switch.living_room", state: "on", domain: "switch", friendlyName: "Living room switch"),
         EntitySnapshot(
@@ -135,6 +167,18 @@ public actor MockHomeStateProvider: HomeStateProvider {
         return current
     }
 
+    public func setBrightness(_ level: Double, entityId: String) async throws -> EntitySnapshot {
+        var current = try await snapshot(for: entityId)
+        guard current.domain == "light" else {
+            throw HomeStateError.notToggleable(current.entityId)
+        }
+        let clamped = min(1, max(0, level))
+        current.brightness = clamped
+        current.state = clamped <= 0.004 ? "off" : "on"
+        states[current.entityId] = current
+        return current
+    }
+
     private static func requireID(_ raw: String) throws -> String {
         switch EntityIDRules.check(raw) {
         case .valid(let id):
@@ -172,6 +216,10 @@ public struct UnconfiguredHomeAssistantClient: HomeStateProvider, Sendable {
     }
 
     public func perform(_ action: EntityAction, entityId: String) async throws -> EntitySnapshot {
+        throw HomeStateError.notConfigured
+    }
+
+    public func setBrightness(_ level: Double, entityId: String) async throws -> EntitySnapshot {
         throw HomeStateError.notConfigured
     }
 }
