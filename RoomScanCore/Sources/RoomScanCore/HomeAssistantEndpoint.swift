@@ -127,7 +127,9 @@ public struct HomeAssistantEndpoint: Equatable, Sendable {
 }
 
 public enum HomeAssistantAPI {
-    public static let root = "/api"
+    /// Status route. Home Assistant registers this view as `/api/` and answers
+    /// `GET /api` with `{"message":"404: Not Found"}`.
+    public static let root = "/api/"
     public static let config = "/api/config"
     public static let states = "/api/states"
     public static let integrationHealth = "/api/home_scanner/health"

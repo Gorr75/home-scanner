@@ -39,11 +39,32 @@ final class HomeAssistantClientTests: XCTestCase {
         XCTAssertEqual(DeviceKind.forHomeAssistantDomain("media_player"), .mediaPlayer)
     }
 
+    func testAPIStatusURLPreservesTrailingSlash() throws {
+        XCTAssertEqual(HomeAssistantAPI.root, "/api/")
+        let local = HomeAssistantEndpoint(
+            baseURL: try XCTUnwrap(URL(string: "http://192.168.0.2:8123")),
+            token: "token"
+        )
+        let status = try XCTUnwrap(local.url(path: HomeAssistantAPI.root))
+        XCTAssertEqual(status.absoluteString, "http://192.168.0.2:8123/api/")
+        XCTAssertTrue(status.hasDirectoryPath)
+        let config = try XCTUnwrap(local.url(path: HomeAssistantAPI.config))
+        XCTAssertEqual(config.absoluteString, "http://192.168.0.2:8123/api/config")
+        let health = try XCTUnwrap(local.url(path: HomeAssistantAPI.integrationHealth))
+        XCTAssertEqual(health.absoluteString, "http://192.168.0.2:8123/api/home_scanner/health")
+
+        let nabu = HomeAssistantEndpoint(
+            baseURL: try XCTUnwrap(URL(string: "https://example.ui.nabu.casa")),
+            token: "token"
+        )
+        let remote = try XCTUnwrap(nabu.url(path: HomeAssistantAPI.root))
+        XCTAssertEqual(remote.absoluteString, "https://example.ui.nabu.casa/api/")
+    }
+
     func testProbeParsesServerAndUploadEndpoint() async throws {
         let transport = ScriptedTransport { request in
-            let path = request.url?.path ?? ""
-            switch path {
-            case "/api", "/api/":
+            switch Self.serverPath(request) {
+            case "/api/", "/api":
                 return HTTPResponse(statusCode: 200, data: Data(#"{"message":"API running."}"#.utf8))
             case "/api/config":
                 return HTTPResponse(
@@ -61,6 +82,7 @@ final class HomeAssistantClientTests: XCTestCase {
         XCTAssertEqual(probe.locationName, "House")
         XCTAssertEqual(probe.version, "2026.4.0")
         XCTAssertTrue(probe.uploadEndpointInstalled)
+        assertProbeRequestedAPIRoot(transport)
         let authorization = try XCTUnwrap(transport.requests.first?.value(forHTTPHeaderField: "Authorization"))
         XCTAssertTrue(authorization.hasPrefix("Bearer "))
         XCTAssertFalse(authorization.contains("\n"))
@@ -68,8 +90,8 @@ final class HomeAssistantClientTests: XCTestCase {
 
     func testProbeReportsMissingIntegrationWithoutFailingTheToken() async throws {
         let transport = ScriptedTransport { request in
-            let path = request.url?.path ?? ""
-            if path == "/api" || path == "/api/" {
+            let path = Self.serverPath(request)
+            if path == "/api/" || path == "/api" {
                 return HTTPResponse(statusCode: 200, data: Data(#"{"message":"API running."}"#.utf8))
             }
             return HTTPResponse(statusCode: 404, data: Data(#"{"message":"not found"}"#.utf8))
@@ -77,6 +99,7 @@ final class HomeAssistantClientTests: XCTestCase {
         let probe = try await client(transport).probe()
         XCTAssertFalse(probe.uploadEndpointInstalled)
         XCTAssertEqual(probe.message, "API running.")
+        assertProbeRequestedAPIRoot(transport)
     }
 
     func testUnauthorizedAndEntityRoundTrip() async throws {
@@ -95,8 +118,8 @@ final class HomeAssistantClientTests: XCTestCase {
         ]
         """#.utf8)
         let transport = ScriptedTransport { request in
-            let path = request.url?.path ?? ""
-            if path == "/api" || path == "/api/" {
+            let path = Self.serverPath(request)
+            if path == "/api/" || path == "/api" {
                 return HTTPResponse(statusCode: 401, data: Data(#"{"message":"Unauthorized"}"#.utf8))
             }
             if path == "/api/states" {
@@ -128,7 +151,7 @@ final class HomeAssistantClientTests: XCTestCase {
             _ = try await client.probe()
             XCTFail("Expected the token to be rejected")
         } catch HomeAssistantClientError.unauthorized {
-            // expected
+            assertProbeRequestedAPIRoot(transport)
         }
 
         let listed = try await client.listEntities()
@@ -159,6 +182,30 @@ final class HomeAssistantClientTests: XCTestCase {
             ),
             transport: transport
         )
+    }
+
+    private func assertProbeRequestedAPIRoot(
+        _ transport: ScriptedTransport,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(
+            transport.requests.first?.url?.absoluteString,
+            "http://homeassistant.local:8123/api/",
+            file: file,
+            line: line
+        )
+    }
+
+    /// Path the scripted server matches. `URL.path` strips a trailing slash, so
+    /// `http://host/api/` and `http://host/api` both report `/api`. The status
+    /// route is recovered from the absolute URL.
+    private static func serverPath(_ request: URLRequest) -> String {
+        guard let url = request.url else { return "" }
+        if url.absoluteString.hasSuffix("/api/") {
+            return "/api/"
+        }
+        return url.path
     }
 }
 
