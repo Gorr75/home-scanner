@@ -12,6 +12,12 @@ public struct EntitySnapshot: Equatable, Sendable, Codable {
     public var red: Double?
     public var green: Double?
     public var blue: Double?
+    /// `sun.sun` elevation in degrees. Nil for every other entity.
+    public var elevation: Double?
+    /// `sun.sun` `next_rising`. Nil for every other entity.
+    public var nextRising: Date?
+    /// `sun.sun` `next_setting`. Nil for every other entity.
+    public var nextSetting: Date?
 
     public init(
         entityId: String,
@@ -22,7 +28,10 @@ public struct EntitySnapshot: Equatable, Sendable, Codable {
         brightness: Double? = nil,
         red: Double? = nil,
         green: Double? = nil,
-        blue: Double? = nil
+        blue: Double? = nil,
+        elevation: Double? = nil,
+        nextRising: Date? = nil,
+        nextSetting: Date? = nil
     ) {
         self.entityId = entityId
         self.state = state
@@ -33,6 +42,9 @@ public struct EntitySnapshot: Equatable, Sendable, Codable {
         self.red = red
         self.green = green
         self.blue = blue
+        self.elevation = elevation
+        self.nextRising = nextRising
+        self.nextSetting = nextSetting
     }
 
     public static let toggleableDomains: Set<String> = ["light", "switch", "fan"]

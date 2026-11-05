@@ -88,6 +88,8 @@ rooms:
 
 Plan is drawn from `layout.json` (floors, walls, pins). 3D loads `model.glb`. Tap a light, switch, or fan pin to toggle it through the dashboard session. The long-lived token stays on the iPhone. Do not put it in the card config.
 
+The plan and the model take a daylight tint from `sun.sun` (elevation, then next rising and setting, then above or below the horizon). If that entity is missing, the card uses this device's clock, with sunrise at 06:00 and sunset at 18:00. Light pins keep the colour Home Assistant reports, so a lamp still reads when the room is dim.
+
 The 3D tab uses [`<model-viewer>`](https://modelviewer.dev/). Put `model-viewer.min.js` (a module build) next to `home-scanner-card.js` if Home Assistant cannot fetch it. Without that script the plan tab still works.
 
 Pins are drawn on the model only when the layout is one room, or `structure.coordinates_are_unified` is true. Otherwise open the room slug. The same rule is in `web/viewer/README.md`.

@@ -162,6 +162,189 @@ function lightRGB(attributes) {
   return [255, 198, 115];
 }
 
+// Stops, peak elevation, and the 06:00/18:00 clock match DaylightMath in
+// RoomScanCore/Sources/RoomScanCore/Daylight.swift.
+const DAYLIGHT_STOPS = [
+  [-90, 0.3, 0.42, 0.76, 0.06, 0.08],
+  [-8, 0.4, 0.5, 0.74, 0.14, 0.13],
+  [0, 1, 0.55, 0.26, 0.32, 0.18],
+  [15, 1, 0.68, 0.36, 0.55, 0.3],
+  [28, 1, 0.86, 0.68, 0.78, 0.42],
+  [48, 1, 0.97, 0.93, 1, 0.55],
+  [90, 1, 0.98, 0.95, 1, 0.56],
+];
+const DAYLIGHT_PEAK = 55;
+const DAYLIGHT_SUNRISE_HOUR = 6;
+const daylightEnvironments = new Map();
+
+function daylightMix(start, end, t) {
+  const value = start + (end - start) * t;
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
+function daylightChannels(elevation) {
+  const clamped = Math.min(90, Math.max(-90, elevation));
+  const stops = DAYLIGHT_STOPS;
+  if (clamped <= stops[0][0]) return stops[0].slice(1);
+  if (clamped >= stops[stops.length - 1][0]) return stops[stops.length - 1].slice(1);
+  for (let index = 1; index < stops.length; index += 1) {
+    const upper = stops[index];
+    const lower = stops[index - 1];
+    if (clamped <= upper[0]) {
+      const span = upper[0] - lower[0];
+      const t = span === 0 ? 0 : (clamped - lower[0]) / span;
+      return [1, 2, 3, 4, 5].map((channel) => daylightMix(lower[channel], upper[channel], t));
+    }
+  }
+  return stops[stops.length - 1].slice(1);
+}
+
+function daylightPhase(elevation, morning) {
+  if (elevation >= 20) return "day";
+  if (elevation <= -6) return "night";
+  return morning ? "sunrise" : "sunset";
+}
+
+function daylightTint(elevation, morning) {
+  const clamped = Math.min(90, Math.max(-90, elevation));
+  const channels = daylightChannels(clamped);
+  return {
+    red: channels[0],
+    green: channels[1],
+    blue: channels[2],
+    key: channels[3],
+    fill: channels[4],
+    phase: daylightPhase(clamped, morning),
+    source: "clock",
+  };
+}
+
+function hourOf(date) {
+  return date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
+}
+
+function daylightFromClock(date) {
+  const hour = ((hourOf(date) % 24) + 24) % 24;
+  const elevation = DAYLIGHT_PEAK * Math.sin(((hour - DAYLIGHT_SUNRISE_HOUR) / 12) * Math.PI);
+  return daylightTint(elevation, hour < 12);
+}
+
+function parseSunDate(value) {
+  if (!value) return null;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? time : null;
+}
+
+function syntheticElevation(nowMs, risingMs, settingMs) {
+  if (settingMs < risingMs) {
+    const previousRise = risingMs - 86400000;
+    const span = settingMs - previousRise;
+    if (span <= 60000) return null;
+    const fraction = Math.min(1, Math.max(0, (nowMs - previousRise) / span));
+    return DAYLIGHT_PEAK * Math.sin(fraction * Math.PI);
+  }
+  const previousSet = settingMs - 86400000;
+  const span = risingMs - previousSet;
+  if (span <= 60000) return null;
+  const fraction = Math.min(1, Math.max(0, (nowMs - previousSet) / span));
+  return -DAYLIGHT_PEAK * Math.sin(fraction * Math.PI);
+}
+
+function sunIsMorning(nowMs, risingMs, settingMs) {
+  if (risingMs == null || settingMs == null) return null;
+  if (settingMs < risingMs) {
+    const previousRise = risingMs - 86400000;
+    const mid = previousRise + (settingMs - previousRise) / 2;
+    return nowMs < mid;
+  }
+  const previousSet = settingMs - 86400000;
+  const mid = previousSet + (risingMs - previousSet) / 2;
+  return nowMs >= mid;
+}
+
+function daylightFromSun(stateObj, now) {
+  if (!stateObj) return daylightFromClock(now);
+  const attrs = stateObj.attributes || {};
+  const nowMs = now.getTime();
+  const rising = parseSunDate(attrs.next_rising);
+  const setting = parseSunDate(attrs.next_setting);
+  const morningClock = hourOf(now) < 12;
+  const morning = sunIsMorning(nowMs, rising, setting);
+  const morningFlag = morning == null ? morningClock : morning;
+  const elevation = Number(attrs.elevation);
+  if (Number.isFinite(elevation)) {
+    const tint = daylightTint(elevation, morningFlag);
+    tint.source = "sun";
+    return tint;
+  }
+  if (rising != null && setting != null) {
+    const synthetic = syntheticElevation(nowMs, rising, setting);
+    if (synthetic != null) {
+      const tint = daylightTint(synthetic, morningFlag);
+      tint.source = "sun";
+      return tint;
+    }
+  }
+  if (stateObj.state === "above_horizon") {
+    const tint = daylightTint(45, morningClock);
+    tint.source = "sun";
+    return tint;
+  }
+  if (stateObj.state === "below_horizon") {
+    const tint = daylightTint(-30, morningClock);
+    tint.source = "sun";
+    return tint;
+  }
+  return daylightFromClock(now);
+}
+
+function daylightBackground(tint) {
+  const mix = 0.12 + 0.1 * tint.key;
+  const base = [16, 14, 12];
+  const channels = [tint.red, tint.green, tint.blue].map((channel, index) =>
+    Math.round(base[index] * (1 - mix) + channel * 255 * mix)
+  );
+  return `rgb(${channels[0]}, ${channels[1]}, ${channels[2]})`;
+}
+
+function daylightStroke(tint) {
+  const chalk = [232, 224, 212];
+  const mix = 0.28;
+  const channels = [tint.red, tint.green, tint.blue].map((channel, index) =>
+    Math.round(chalk[index] * (1 - mix) + channel * 255 * mix)
+  );
+  return `rgb(${channels[0]}, ${channels[1]}, ${channels[2]})`;
+}
+
+function daylightEnvironment(tint) {
+  const key = [tint.red, tint.green, tint.blue, tint.key].map((value) => Math.round(value * 32)).join(".");
+  const cached = daylightEnvironments.get(key);
+  if (cached) return cached;
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 32;
+  const context = canvas.getContext("2d");
+  if (!context) return "";
+  const sky = context.createLinearGradient(0, 0, 0, 32);
+  const red = Math.round(tint.red * 255);
+  const green = Math.round(tint.green * 255);
+  const blue = Math.round(tint.blue * 255);
+  sky.addColorStop(0, `rgb(${red}, ${green}, ${blue})`);
+  sky.addColorStop(1, daylightBackground(tint));
+  context.fillStyle = sky;
+  context.fillRect(0, 0, 64, 32);
+  const url = canvas.toDataURL("image/jpeg", 0.85);
+  daylightEnvironments.set(key, url);
+  return url;
+}
+
+function daylightLabel(tint) {
+  const names = { night: "Night", sunrise: "Sunrise", sunset: "Sunset", day: "Midday" };
+  const source = tint.source === "sun" ? "sun.sun" : "this device's clock";
+  return `Daylight from ${source} · ${names[tint.phase] || ""}`;
+}
+
 function lightStyle(stateObj) {
   if (!stateObj) return { fill: "#8aa39a", label: "—" };
   const state = stateObj.state;
@@ -283,7 +466,13 @@ class HomeScannerCard extends HTMLElement {
     this._render();
   }
 
+  _daylight(now = new Date()) {
+    const sun = this._hass && this._hass.states ? this._hass.states["sun.sun"] : null;
+    return daylightFromSun(sun, now);
+  }
+
   _render() {
+    this._tint = this._daylight();
     const title = this._config.title || "Home Scanner";
     const root = this.shadowRoot;
     if (!root.querySelector("style")) {
@@ -320,7 +509,17 @@ class HomeScannerCard extends HTMLElement {
             border-radius: 10px;
             display: block;
           }
-          .status, .hint { color: var(--secondary-text-color, #5c564e); font-size: 0.85rem; }
+          .status, .hint, .daylight { color: var(--secondary-text-color, #5c564e); font-size: 0.85rem; }
+          .daylight { margin: 6px 0 0; }
+          button.hotspot {
+            background: rgba(244, 239, 230, 0.94);
+            border: none;
+            border-radius: 999px;
+            color: #100e0c;
+            font: inherit;
+            font-size: 12px;
+            padding: 2px 8px;
+          }
           ul { list-style: none; padding: 0; margin: 8px 0 0; }
           li { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; }
           .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
@@ -332,6 +531,7 @@ class HomeScannerCard extends HTMLElement {
           <canvas width="640" height="360" hidden></canvas>
           <div class="model"></div>
           <p class="status"></p>
+          <p class="daylight"></p>
           <ul class="pins"></ul>
           <p class="hint"></p>
         </div>
@@ -374,6 +574,10 @@ class HomeScannerCard extends HTMLElement {
     if (this._mode === "model") this._mountModel(modelHost);
     else modelHost.replaceChildren();
     root.querySelector(".status").textContent = this._status || "";
+    const daylightLine = root.querySelector(".daylight");
+    if (daylightLine) {
+      daylightLine.textContent = this._home && !this._status ? daylightLabel(this._tint) : "";
+    }
     this._renderPins(root.querySelector(".pins"));
     const hint = root.querySelector(".hint");
     hint.textContent = this._home && !sceneGeometry(this._home).unified
@@ -403,6 +607,18 @@ class HomeScannerCard extends HTMLElement {
       host.append(viewer);
     }
     if (viewer.getAttribute("src") !== src) viewer.setAttribute("src", src);
+    const tint = this._tint || daylightFromClock(new Date());
+    viewer.style.background = daylightBackground(tint);
+    const exposure = (0.28 + tint.key * 1.05).toFixed(3);
+    viewer.setAttribute("exposure", exposure);
+    viewer.exposure = Number(exposure);
+    const shadow = (0.15 + 0.45 * tint.key).toFixed(3);
+    viewer.setAttribute("shadow-intensity", shadow);
+    if ("shadowIntensity" in viewer) viewer.shadowIntensity = Number(shadow);
+    const environment = daylightEnvironment(tint);
+    if (viewer.getAttribute("environment-image") !== environment) {
+      viewer.setAttribute("environment-image", environment);
+    }
     for (const node of [...viewer.querySelectorAll(".hotspot")]) node.remove();
     if (!geometry.unified) return;
     for (const pin of this._home.pins || []) {
@@ -414,6 +630,14 @@ class HomeScannerCard extends HTMLElement {
       button.dataset.position = `${position.x || 0} ${position.y || 0} ${position.z || 0}`;
       button.dataset.normal = "0 1 0";
       button.textContent = pin.name || pin.entity_id || "Device";
+      const stateObj = pin.entity_id && this._hass ? this._hass.states[pin.entity_id] : null;
+      const domain = pin.entity_id ? pin.entity_id.split(".")[0] : "";
+      if (stateObj && domain === "light" && stateObj.state === "on") {
+        const style = lightStyle(stateObj);
+        button.style.background = style.fill;
+        button.style.boxShadow = `0 0 12px 2px ${style.fill}`;
+        button.style.color = "#100e0c";
+      }
       if (pin.entity_id) {
         button.addEventListener("click", (event) => {
           event.preventDefault();
@@ -470,7 +694,8 @@ class HomeScannerCard extends HTMLElement {
     const context = canvas.getContext("2d");
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
-    context.fillStyle = "#100e0c";
+    const tint = this._tint || daylightFromClock(new Date());
+    context.fillStyle = daylightBackground(tint);
     context.fillRect(0, 0, width, height);
     const geometry = sceneGeometry(this._home);
     const box = geometry.bounds;
@@ -484,7 +709,7 @@ class HomeScannerCard extends HTMLElement {
       y: pad + (z - box.minZ) * scale,
     });
     context.lineWidth = 2;
-    context.strokeStyle = "#e8e0d4";
+    context.strokeStyle = daylightStroke(tint);
     context.fillStyle = "rgba(232, 224, 212, 0.08)";
     for (const frame of geometry.frames) {
       const plan = frame.room.floor_plan || {};
@@ -550,3 +775,5 @@ if (!window.customCards.some((card) => card.type === "home-scanner-card")) {
     preview: false,
   });
 }
+
+export { daylightFromClock, daylightFromSun, daylightTint };

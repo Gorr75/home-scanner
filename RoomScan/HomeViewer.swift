@@ -16,6 +16,8 @@ struct HomeViewer: View {
     @State private var cameraToken = 0
     @State private var errorMessage: String?
     @State private var showHeat = false
+    @State private var previewHour: Double?
+    @AppStorage(DaylightPreference.enabledKey) private var daylightEnabled = true
 
     private var home: Home? { store.home(id: homeID) }
 
@@ -110,25 +112,41 @@ struct HomeViewer: View {
                 onCreate: { x, z in create(in: home, x: x, z: z, y: placeKind.defaultHeight) }
             )
         } else {
-            RoomModelView(
-                layers: layers(home),
-                usdzURL: store.structureModelURL(in: home),
-                pins: home.pins,
-                showPins: showsPins(home),
-                looksByEntity: pinBoard.looksByEntity(for: home.pins),
-                captionByPin: pinBoard.captions(for: home.pins),
-                selectedPinID: selectedPinID,
-                placementEnabled: placing && showsPins(home),
-                cameraToken: cameraToken,
-                onSelectPin: { selectedPinID = $0 },
-                onTogglePin: { togglePin($0, in: home) },
-                onPlace: { point in
-                    let height = point.y < 0.25 ? placeKind.defaultHeight : point.y
-                    create(in: home, x: point.x, z: point.z, y: height)
-                },
-                onRenderedUSDZ: { renderedUSDZ = $0 },
-                surfacePaints: TexturePaints.forHome(home, store: store)
-            )
+            TimelineView(.periodic(from: .now, by: 30)) { timeline in
+                let tint = DaylightScene.tint(
+                    enabled: daylightEnabled,
+                    previewHour: previewHour,
+                    sun: pinBoard.sun,
+                    now: timeline.date
+                )
+                RoomModelView(
+                    layers: layers(home),
+                    usdzURL: store.structureModelURL(in: home),
+                    pins: home.pins,
+                    showPins: showsPins(home),
+                    looksByEntity: pinBoard.looksByEntity(for: home.pins),
+                    captionByPin: pinBoard.captions(for: home.pins),
+                    selectedPinID: selectedPinID,
+                    placementEnabled: placing && showsPins(home),
+                    cameraToken: cameraToken,
+                    onSelectPin: { selectedPinID = $0 },
+                    onTogglePin: { togglePin($0, in: home) },
+                    onPlace: { point in
+                        let height = point.y < 0.25 ? placeKind.defaultHeight : point.y
+                        create(in: home, x: point.x, z: point.z, y: height)
+                    },
+                    onRenderedUSDZ: { renderedUSDZ = $0 },
+                    surfacePaints: TexturePaints.forHome(home, store: store),
+                    daylight: tint
+                )
+                .overlay(alignment: .top) {
+                    if let tint {
+                        DaylightScrubber(previewHour: $previewHour, now: timeline.date, tint: tint)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 8)
+                    }
+                }
+            }
         }
     }
 
