@@ -49,6 +49,8 @@ struct SettingsView: View {
                     Text(status ?? assistant.serverLabel)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperChrome()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

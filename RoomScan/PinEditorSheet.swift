@@ -115,6 +115,8 @@ struct PinEditorSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperChrome()
             .navigationTitle("Device")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

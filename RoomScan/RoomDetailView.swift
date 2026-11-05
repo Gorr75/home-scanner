@@ -42,8 +42,10 @@ struct RoomDetailView: View {
     private var room: Room? { home?.room(id: roomID) }
     private var pins: [DevicePin] { home?.pins(in: roomID) ?? [] }
 
+    private var viewing: Bool { page == .model || page == .plan }
+
     var body: some View {
-        PaperScreen {
+        Group {
             if let home, let room {
                 VStack(spacing: 0) {
                     Picker("View", selection: $page) {
@@ -74,6 +76,7 @@ struct RoomDetailView: View {
                 ContentUnavailableView("Room missing", systemImage: "square.dashed", description: Text("It may have been deleted."))
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(room?.name ?? "Room")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
@@ -139,6 +142,7 @@ struct RoomDetailView: View {
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
         }
+        .surfaceChrome(charcoal: viewing)
     }
 
     private func model(_ home: Home, room: Room) -> some View {
@@ -172,6 +176,7 @@ struct RoomDetailView: View {
             pinCaptions: pinBoard.captions(for: pins),
             pinStates: pinBoard.states(for: pins),
             heatSamples: showHeat ? heatSamples(in: room) : [],
+            onCharcoal: true,
             onSelectPin: { selectedPinID = $0 },
             onMovePin: { id, x, z in move(id, x: x, z: z) },
             onCreate: { x, z in
@@ -268,10 +273,10 @@ struct RoomDetailView: View {
     private func caption(_ room: Room) -> some View {
         Text(captionText(room))
             .font(.caption)
-            .foregroundStyle(Theme.ink)
+            .foregroundStyle(Theme.chalk)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(.ultraThinMaterial, in: Capsule())
+            .background(Theme.navy, in: Capsule())
             .padding(12)
     }
 
@@ -287,13 +292,14 @@ struct RoomDetailView: View {
     private func selectionBar(_ pin: DevicePin) -> some View {
         HStack(spacing: 12) {
             Image(systemName: pin.kind.symbolName)
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(viewing ? Theme.accentOnCharcoal : Theme.accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text(pin.name)
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(viewing ? Theme.chalk : Theme.ink)
                 Text(pinBoard.snapshot(for: pin)?.displayState ?? pin.entityId ?? "Not linked")
                     .font(.caption)
-                    .foregroundStyle(Theme.secondary)
+                    .foregroundStyle(viewing ? Theme.mist : Theme.secondary)
             }
             Spacer()
             if let snapshot = pinBoard.snapshot(for: pin), snapshot.isToggleable {
@@ -304,10 +310,11 @@ struct RoomDetailView: View {
             }
             Button("Edit") { editor = pin }
                 .buttonStyle(.borderedProminent)
+                .tint(Theme.accent)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Theme.card)
+        .background(viewing ? Theme.navy : Theme.card)
     }
 
     @ToolbarContentBuilder
@@ -466,7 +473,8 @@ struct RoomDetailView: View {
                         showPins: false,
                         selectedPinID: nil,
                         placing: false,
-                        changes: diff
+                        changes: diff,
+                        onCharcoal: true
                     )
                 }
                 List {
@@ -486,7 +494,9 @@ struct RoomDetailView: View {
                     }
                 }
                 .scrollContentBackground(.hidden)
+                .background(Theme.paper)
             }
+            .paperChrome()
             .navigationTitle("Scan diff")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -503,7 +513,7 @@ struct RoomDetailView: View {
         let doorText = doors.isEmpty ? "no doors" : "doors \(doors)"
         return Text("\(MeasurementMath.squareMeters(summary.floorArea)) · walls \(MeasurementMath.meters(summary.wallLength)) m · \(doorText)")
             .font(.caption.monospacedDigit())
-            .foregroundStyle(Theme.secondary)
+            .foregroundStyle(Theme.mist)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)

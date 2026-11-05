@@ -95,7 +95,7 @@ struct TextureStudioView: View {
                 }
                 .scrollContentBackground(.hidden)
             }
-            .background(Theme.paper)
+            .paperChrome()
             .navigationTitle("Wall photos")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

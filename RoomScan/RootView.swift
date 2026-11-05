@@ -48,7 +48,7 @@ struct RootView: View {
                 systemImage: "house",
                 description: Text("Choose a home, or open the sample apartment.")
             )
-            .background(Theme.paper)
+            .paperChrome()
         }
     }
 }

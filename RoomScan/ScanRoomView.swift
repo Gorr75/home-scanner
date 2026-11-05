@@ -161,6 +161,7 @@ struct ScanRoomView: View {
                 }
                 .scrollContentBackground(.hidden)
             }
+            .paperChrome()
             .navigationTitle("Save room")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -244,7 +245,8 @@ struct ScanRoomView: View {
                     showPins: false,
                     selectedPinID: nil,
                     placing: false,
-                    changes: pending.diff
+                    changes: pending.diff,
+                    onCharcoal: true
                 )
                 List {
                     Section {
@@ -258,7 +260,9 @@ struct ScanRoomView: View {
                     }
                 }
                 .scrollContentBackground(.hidden)
+                .background(Theme.paper)
             }
+            .paperChrome()
             .navigationTitle("What changed")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

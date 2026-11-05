@@ -65,7 +65,6 @@ struct HomeListView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Theme.paper)
         .navigationTitle("Home Scanner")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -122,6 +121,7 @@ struct HomeListView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .paperChrome()
     }
 
     private var listSelection: Binding<UUID?>? {
