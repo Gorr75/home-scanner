@@ -102,7 +102,7 @@ struct HomeViewer: View {
                 selectedPinID: selectedPinID,
                 placing: placing && showsPins(home),
                 pinCaptions: pinBoard.captions(for: home.pins),
-                pinStates: pinBoard.states(for: home.pins),
+                pinLooks: pinBoard.looksByPin(for: home.pins),
                 heatSamples: showHeat ? heatSamples(for: home) : [],
                 onCharcoal: true,
                 onSelectPin: { selectedPinID = $0 },
@@ -115,12 +115,13 @@ struct HomeViewer: View {
                 usdzURL: store.structureModelURL(in: home),
                 pins: home.pins,
                 showPins: showsPins(home),
-                stateByEntity: pinBoard.stateMap(for: home.pins),
+                looksByEntity: pinBoard.looksByEntity(for: home.pins),
                 captionByPin: pinBoard.captions(for: home.pins),
                 selectedPinID: selectedPinID,
                 placementEnabled: placing && showsPins(home),
                 cameraToken: cameraToken,
                 onSelectPin: { selectedPinID = $0 },
+                onTogglePin: { togglePin($0, in: home) },
                 onPlace: { point in
                     let height = point.y < 0.25 ? placeKind.defaultHeight : point.y
                     create(in: home, x: point.x, z: point.z, y: height)
@@ -156,35 +157,26 @@ struct HomeViewer: View {
             return placing ? "Tap the plan to place a \(placeKind.label.lowercased()). Drag a dot to move it." : "Drag the plan to pan. Pinch to zoom. Drag a device to move it."
         }
         if renderedUSDZ {
-            return "USDZ model. Drag to orbit, pinch to zoom."
+            return "USDZ model. Tap a light, switch, or fan to toggle it. Drag to orbit, pinch to zoom."
         }
-        return "Built from the floor plan. A LiDAR scan replaces this with the RoomPlan USDZ."
+        return "Built from the floor plan. Tap a light to toggle it. Drag to orbit, pinch to zoom."
     }
 
     private func selectionBar(_ pin: DevicePin) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(pin.name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.chalk)
-                Text(pinBoard.snapshot(for: pin)?.displayState ?? pin.entityId ?? "Not linked")
-                    .font(.caption)
-                    .foregroundStyle(Theme.mist)
-            }
-            Spacer()
-            if let snapshot = pinBoard.snapshot(for: pin), snapshot.isToggleable {
-                Button(snapshot.isOn ? "Turn off" : "Turn on") {
-                    Task { await pinBoard.toggle(pin) }
-                }
-                .buttonStyle(.bordered)
-            }
-            Button("Edit") { editor = pin }
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.accent)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Theme.navy)
+        PinSelectionBar(
+            pin: pin,
+            snapshot: pinBoard.snapshot(for: pin),
+            onCharcoal: true,
+            onToggle: { Task { await pinBoard.toggle(pin) } },
+            onBrightness: { level in Task { await pinBoard.setBrightness(level, pin: pin) } },
+            onEdit: { editor = pin }
+        )
+    }
+
+    private func togglePin(_ id: UUID, in home: Home) {
+        guard let pin = home.pins.first(where: { $0.id == id }) else { return }
+        guard pinBoard.snapshot(for: pin)?.isToggleable == true else { return }
+        Task { await pinBoard.toggle(pin) }
     }
 
     private func heatSamples(for home: Home) -> [HeatSample] {

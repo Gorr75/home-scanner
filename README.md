@@ -32,7 +32,8 @@ Scans are written under the app's Documents folder (`Homes/<id>/`), which the Fi
 - On a device without LiDAR, the app explains that and still opens anything already saved, including the sample.
 - Place, move, and delete device pins by tapping the 3D model or the floor plan. Each pin has a name, a type, a 3D position, and an optional Home Assistant `entity_id` such as `light.kitchen`.
 - Connect Home Assistant in Settings, test the connection, and pick an entity from the server's list while editing a pin.
-- Show live light, switch, and sensor readings on the pins. The app polls the REST API and subscribes to `state_changed` on the websocket.
+- Show live light, switch, and sensor readings on the pins. Lights use the entity colour and brightness. Tap a light, switch, or fan pin in the 3D view to toggle it, and dim a light from the bar under the model. The app polls the REST API and subscribes to `state_changed` on the websocket.
+- Place unmatched devices into rooms from Home Assistant areas, friendly names, and entity ids. Pins you already linked stay where you put them.
 - Send the layout and a model to Home Assistant, or share a `.zip` and a floor-plan PDF.
 - Read furniture labels and dimensions, compare two scans, and lay a sensor heatmap over the plan.
 - Project photos onto walls and floors. Capture frames during the scan, or bring in library, camera, and Files photos (including drone pictures), then drag the four corners. Textures are stored beside the home and baked into the GLB and USDZ sent to Home Assistant.
@@ -89,7 +90,9 @@ Until Settings has a base URL and a token, pins use `MockHomeStateProvider` (kit
 
 **Send to Home Assistant** uploads `layout.json`, `model.glb`, and any RoomPlan `model.usdz` to `POST /api/home_scanner/upload/<id>`. The integration in `ha/custom_components/home_scanner/` stores them at `/config/www/home_scanner/<id>/`, which the card reads as `/local/home_scanner/<id>/layout.json` and `model.glb`. **Share a .zip** writes the same folders for AirDrop or Files. A successful upload can open `homeassistant://navigate/lovelace/home-scanner`.
 
-The token is not written into the home file. Install steps are in [ha/custom_components/home_scanner/README.md](ha/custom_components/home_scanner/README.md). The file layout the web card should use is [web/viewer/README.md](web/viewer/README.md).
+The Lovelace card is [web/home-scanner-card/home-scanner-card.js](web/home-scanner-card/home-scanner-card.js). It lists rooms from the integration index and opens the plan or `model.glb`. [web/viewer/viewer.html](web/viewer/viewer.html) is the static page an existing iframe at `/local/home_scanner/viewer.html` can use.
+
+The token is not written into the home file. Install steps are in [ha/custom_components/home_scanner/README.md](ha/custom_components/home_scanner/README.md) and [web/home-scanner-card/README.md](web/home-scanner-card/README.md). The file layout is [web/viewer/README.md](web/viewer/README.md).
 
 See [docs/home-assistant.md](docs/home-assistant.md).
 

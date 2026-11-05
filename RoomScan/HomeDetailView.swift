@@ -19,6 +19,8 @@ struct HomeDetailView: View {
     @State private var showSettings = false
     @State private var showUploaded = false
     @State private var uploadedMessage = ""
+    @State private var pendingPlacements: [DevicePin] = []
+    @State private var confirmAutoPlace = false
 
     private var home: Home? { store.home(id: homeID) }
 
@@ -122,6 +124,7 @@ struct HomeDetailView: View {
                             }
                             .buttonStyle(.plain)
                         }
+                        Button("Place devices from Home Assistant") { proposeAutoPlace() }
                         Text(pinBoard.banner)
                             .font(.footnote)
                             .foregroundStyle(Theme.secondary)
@@ -179,6 +182,18 @@ struct HomeDetailView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .confirmationDialog(
+            pendingPlacements.count == 1
+                ? "Add 1 device from Home Assistant?"
+                : "Add \(pendingPlacements.count) devices from Home Assistant?",
+            isPresented: $confirmAutoPlace,
+            titleVisibility: .visible
+        ) {
+            Button("Add devices") { commitAutoPlace() }
+            Button("Cancel", role: .cancel) { pendingPlacements = [] }
+        } message: {
+            Text(DeviceAutoPlace.confirmDetail)
+        }
         .alert("Sent to Home Assistant", isPresented: $showUploaded) {
             Button("Open Home Assistant") { openCompanion() }
             Button("OK", role: .cancel) {}
@@ -199,6 +214,7 @@ struct HomeDetailView: View {
                     renameDraft = home?.name ?? ""
                     renaming = true
                 }
+                Button("Place devices from Home Assistant") { proposeAutoPlace() }
                 Button("Home Assistant settings") { showSettings = true }
                 Button("Send to Home Assistant") { sendToHomeAssistant() }
                     .disabled(sending)
@@ -292,6 +308,38 @@ struct HomeDetailView: View {
                 )
             } catch {
                 errorMessage = "RoomPlan could not align these scans. Include the shared doorway in each room, then try again. \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func proposeAutoPlace() {
+        guard let home else { return }
+        guard assistant.isConfigured, let client = assistant.makeClient() else {
+            errorMessage = "Add the Home Assistant URL and a long-lived token in Settings, then place devices again."
+            showSettings = true
+            return
+        }
+        Task {
+            do {
+                let pins = try await DeviceAutoPlace.propose(home: home, roomID: nil, client: client)
+                if pins.isEmpty {
+                    errorMessage = "No unmatched devices lined up with a room. Match a Home Assistant area or the device name to a room, or link a pin by hand. Pins you already linked stay put."
+                } else {
+                    pendingPlacements = pins
+                    confirmAutoPlace = true
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func commitAutoPlace() {
+        let pins = pendingPlacements
+        pendingPlacements = []
+        mutate { home in
+            for pin in pins {
+                home.upsertPin(pin)
             }
         }
     }

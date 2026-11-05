@@ -10,6 +10,7 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
+from .catalog import publish_index
 from .const import ALLOWED_FILES, DOMAIN, EVENT_LAYOUT_UPDATED, MAX_BYTES
 from .paths import destination_dir, safe_slug
 
@@ -22,6 +23,7 @@ def async_register(hass: HomeAssistant) -> None:
     if data.get("views_registered"):
         return
     hass.http.register_view(HealthView())
+    hass.http.register_view(RoomsView())
     hass.http.register_view(UploadView())
     data["views_registered"] = True
 
@@ -35,6 +37,23 @@ class HealthView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         return self.json({"ok": True, "domain": DOMAIN})
+
+
+class RoomsView(HomeAssistantView):
+    """GET /api/home_scanner/rooms — folders the Lovelace card can open."""
+
+    url = "/api/home_scanner/rooms"
+    name = "api:home_scanner:rooms"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        try:
+            index = await hass.async_add_executor_job(publish_index, hass.config.config_dir)
+        except OSError as err:
+            _LOGGER.error("Could not list Home Scanner rooms: %s", err)
+            return self.json_message("Could not read Home Scanner rooms.", 500)
+        return self.json(index)
 
 
 class UploadView(HomeAssistantView):
@@ -90,6 +109,15 @@ class UploadView(HomeAssistantView):
         except OSError as err:
             _LOGGER.error("Could not store Home Scanner upload for %s: %s", slug, err)
             return self.json_message("Could not store the upload.", 500)
+
+        try:
+            await hass.async_add_executor_job(publish_index, hass.config.config_dir)
+        except OSError as err:
+            _LOGGER.warning(
+                "Stored Home Scanner upload for %s but could not refresh index.json: %s",
+                slug,
+                err,
+            )
 
         local_path = f"/local/home_scanner/{slug}/"
         hass.bus.async_fire(

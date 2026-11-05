@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home Scanner</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      font: 15px/1.4 ui-sans-serif, system-ui, sans-serif;
+      background: #100e0c;
+      color: #f4efe6;
+    }
+    header, main { padding: 16px; }
+    h1 { font-size: 1.15rem; margin: 0 0 10px; }
+    nav, .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    button {
+      border: 1px solid #5c534a;
+      background: transparent;
+      color: inherit;
+      border-radius: 999px;
+      padding: 6px 12px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button[aria-pressed="true"] { background: #1f6b5a; border-color: transparent; }
+    canvas, model-viewer {
+      width: min(960px, 100%);
+      height: 420px;
+      background: #161310;
+      border-radius: 12px;
+      display: block;
+    }
+    #status { color: #c8bfb2; }
+    a { color: #8fd0c0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Home Scanner</h1>
+    <nav id="rooms"></nav>
+    <div class="tabs">
+      <button id="tab-plan" type="button" aria-pressed="true">Plan</button>
+      <button id="tab-model" type="button" aria-pressed="false">3D</button>
+    </div>
+  </header>
+  <main>
+    <canvas id="plan" width="960" height="420"></canvas>
+    <div id="model" hidden></div>
+    <p id="status">Choose a room.</p>
+  </main>
+  <script type="module">
+    const params = new URLSearchParams(location.search);
+    const initial = params.get("slug") || params.get("room") || params.get("id");
+    const roomsEl = document.querySelector("#rooms");
+    const statusEl = document.querySelector("#status");
+    const canvas = document.querySelector("#plan");
+    const modelHost = document.querySelector("#model");
+    let slug = initial;
+    let home = null;
+    let mode = "plan";
+
+    function fileURL(id, name) {
+      return `/local/home_scanner/${encodeURIComponent(id)}/${name}`;
+    }
+
+    async function loadIndex() {
+      try {
+        const response = await fetch("/local/home_scanner/index.json", { cache: "no-store" });
+        if (!response.ok) return [];
+        const index = await response.json();
+        return Array.isArray(index.rooms) ? index.rooms : [];
+      } catch (_error) {
+        return [];
+      }
+    }
+
+    function showRooms(rooms) {
+      roomsEl.replaceChildren();
+      for (const room of rooms) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = room.name || room.slug;
+        button.setAttribute("aria-pressed", room.slug === slug ? "true" : "false");
+        button.addEventListener("click", () => openRoom(room.slug));
+        roomsEl.append(button);
+      }
+      if (!rooms.length && !slug) {
+        statusEl.textContent = "No index.json yet. Open this page with ?slug=<room id>, or send a scan after updating the home_scanner integration.";
+      }
+    }
+
+    async function openRoom(next) {
+      slug = next;
+      const url = new URL(location.href);
+      url.searchParams.set("slug", next);
+      history.replaceState(null, "", url);
+      for (const button of roomsEl.querySelectorAll("button")) {
+        button.setAttribute("aria-pressed", button.textContent && button.dataset.slug === next ? "true" : "false");
+      }
+      statusEl.textContent = "Loading layout…";
+      try {
+        const response = await fetch(fileURL(next, "layout.json"), { cache: "no-store" });
+        if (!response.ok) throw new Error(`layout.json returned ${response.status}`);
+        const document = await response.json();
+        if (document.format !== "roomscan.home" || document.version !== 1) {
+          throw new Error("This folder is not a roomscan.home version 1 layout.");
+        }
+        home = document.home;
+        statusEl.textContent = home.name || next;
+        if (mode === "model") await showModel();
+        else draw();
+      } catch (error) {
+        home = null;
+        statusEl.textContent = error.message;
+      }
+      const rooms = await loadIndex();
+      showRooms(rooms.length ? rooms : [{ slug: next, name: home?.name || next }]);
+      for (const button of roomsEl.querySelectorAll("button")) {
+        const label = button.textContent;
+        const match = rooms.find((room) => (room.name || room.slug) === label);
+        button.setAttribute("aria-pressed", match ? match.slug === slug : label === (home?.name || slug) ? "true" : "false");
+      }
+    }
+
+    function pointsOf(plan) {
+      const points = [];
+      for (const floor of plan?.floors || []) points.push(...(floor.corners || []));
+      for (const wall of plan?.walls || []) {
+        if (wall.start) points.push(wall.start);
+        if (wall.end) points.push(wall.end);
+      }
+      return points;
+    }
+
+    function draw() {
+      canvas.hidden = false;
+      modelHost.hidden = true;
+      if (!home) return;
+      const width = canvas.clientWidth || 960;
+      const height = 420;
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.round(width * ratio);
+      canvas.height = Math.round(height * ratio);
+      const context = canvas.getContext("2d");
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.fillStyle = "#161310";
+      context.fillRect(0, 0, width, height);
+      const points = [];
+      for (const room of home.rooms || []) points.push(...pointsOf(room.floor_plan));
+      for (const pin of home.pins || []) if (pin.position) points.push(pin.position);
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const point of points) {
+        minX = Math.min(minX, point.x); maxX = Math.max(maxX, point.x);
+        minZ = Math.min(minZ, point.z); maxZ = Math.max(maxZ, point.z);
+      }
+      if (!Number.isFinite(minX)) return;
+      const pad = 28;
+      const scale = Math.min((width - pad * 2) / Math.max(maxX - minX, 0.2), (height - pad * 2) / Math.max(maxZ - minZ, 0.2));
+      const project = (x, z) => ({ x: pad + (x - minX) * scale, y: pad + (z - minZ) * scale });
+      context.strokeStyle = "#e8e0d4";
+      context.fillStyle = "rgba(232,224,212,0.08)";
+      context.lineWidth = 2;
+      for (const room of home.rooms || []) {
+        const plan = room.floor_plan || {};
+        for (const floor of plan.floors || []) {
+          const corners = floor.corners || [];
+          if (corners.length < 3) continue;
+          context.beginPath();
+          corners.forEach((corner, index) => {
+            const point = project(corner.x, corner.z);
+            if (index === 0) context.moveTo(point.x, point.y);
+            else context.lineTo(point.x, point.y);
+          });
+          context.closePath();
+          context.fill();
+        }
+        for (const wall of plan.walls || []) {
+          if (!wall.start || !wall.end) continue;
+          const start = project(wall.start.x, wall.start.z);
+          const end = project(wall.end.x, wall.end.z);
+          context.beginPath();
+          context.moveTo(start.x, start.y);
+          context.lineTo(end.x, end.y);
+          context.stroke();
+        }
+      }
+      context.fillStyle = "#45c9a5";
+      context.font = "13px sans-serif";
+      for (const pin of home.pins || []) {
+        const position = pin.position || {};
+        const point = project(position.x || 0, position.z || 0);
+        context.beginPath();
+        context.arc(point.x, point.y, 6, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = "#f4efe6";
+        context.fillText(pin.name || "", point.x + 10, point.y + 4);
+        context.fillStyle = "#45c9a5";
+      }
+    }
+
+    async function showModel() {
+      canvas.hidden = true;
+      modelHost.hidden = false;
+      if (!slug) return;
+      if (!customElements.get("model-viewer")) {
+        const sources = [
+          "/local/community/home-scanner-card/model-viewer.min.js",
+          "https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js",
+        ];
+        let loaded = false;
+        for (const source of sources) {
+          try {
+            await import(source);
+            loaded = customElements.get("model-viewer");
+            if (loaded) break;
+          } catch (_error) {
+            loaded = false;
+          }
+        }
+        if (!loaded) {
+          modelHost.textContent = "3D needs model-viewer.min.js beside the Lovelace card, or a network path to that script. The plan is still available.";
+          return;
+        }
+      }
+      modelHost.replaceChildren();
+      const viewer = document.createElement("model-viewer");
+      viewer.setAttribute("src", fileURL(slug, "model.glb"));
+      viewer.setAttribute("camera-controls", "");
+      viewer.setAttribute("alt", "Room model");
+      const unified = (home?.rooms || []).length <= 1 || home?.structure?.coordinates_are_unified === true;
+      if (unified) {
+        for (const pin of home?.pins || []) {
+          const position = pin.position || {};
+          const button = document.createElement("button");
+          button.slot = `hotspot-${pin.id || pin.name}`;
+          button.dataset.position = `${position.x || 0} ${position.y || 0} ${position.z || 0}`;
+          button.dataset.normal = "0 1 0";
+          button.textContent = pin.name || "Device";
+          viewer.append(button);
+        }
+      }
+      modelHost.append(viewer);
+    }
+
+    document.querySelector("#tab-plan").addEventListener("click", () => {
+      mode = "plan";
+      document.querySelector("#tab-plan").setAttribute("aria-pressed", "true");
+      document.querySelector("#tab-model").setAttribute("aria-pressed", "false");
+      draw();
+    });
+    document.querySelector("#tab-model").addEventListener("click", () => {
+      mode = "model";
+      document.querySelector("#tab-plan").setAttribute("aria-pressed", "false");
+      document.querySelector("#tab-model").setAttribute("aria-pressed", "true");
+      showModel();
+    });
+
+    const rooms = await loadIndex();
+    showRooms(rooms);
+    if (slug) await openRoom(slug);
+    else if (rooms[0]) await openRoom(rooms[0].slug);
+  </script>
+</body>
+</html>

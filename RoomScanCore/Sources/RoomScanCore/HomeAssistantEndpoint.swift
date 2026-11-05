@@ -132,7 +132,16 @@ public enum HomeAssistantAPI {
     public static let root = "/api/"
     public static let config = "/api/config"
     public static let states = "/api/states"
+    public static let template = "/api/template"
     public static let integrationHealth = "/api/home_scanner/health"
+
+    /// Plain-text lines of `entity_id<TAB>area name` for the domains the app can pin.
+    public static let areaNameTemplate = """
+    {% for domain in ['light', 'switch', 'fan', 'sensor', 'binary_sensor', 'climate', 'cover', 'media_player', 'lock'] %}\
+    {% for s in states[domain] %}{{ s.entity_id }}\t{{ area_name(s.entity_id) or '' }}
+    {% endfor %}\
+    {% endfor %}
+    """
 
     public static func state(_ entityId: String) -> String {
         "/api/states/\(entityId)"
@@ -149,19 +158,32 @@ public struct HAEntityRecord: Equatable, Sendable, Identifiable {
     public var domain: String
     public var friendlyName: String?
     public var unit: String?
+    /// 0...1. Home Assistant's `brightness` attribute is 0...255.
+    public var brightness: Double?
+    public var red: Double?
+    public var green: Double?
+    public var blue: Double?
 
     public init(
         entityId: String,
         state: String,
         domain: String,
         friendlyName: String? = nil,
-        unit: String? = nil
+        unit: String? = nil,
+        brightness: Double? = nil,
+        red: Double? = nil,
+        green: Double? = nil,
+        blue: Double? = nil
     ) {
         self.entityId = entityId
         self.state = state
         self.domain = domain
         self.friendlyName = friendlyName
         self.unit = unit
+        self.brightness = brightness
+        self.green = green
+        self.red = red
+        self.blue = blue
     }
 
     public var id: String { entityId }
@@ -172,7 +194,11 @@ public struct HAEntityRecord: Equatable, Sendable, Identifiable {
             state: state,
             domain: domain,
             unit: unit,
-            friendlyName: friendlyName
+            friendlyName: friendlyName,
+            brightness: brightness,
+            red: red,
+            green: green,
+            blue: blue
         )
     }
 
@@ -311,6 +337,25 @@ enum HomeAssistantDecoding {
         )
     }
 
+    /// Template API body: one entity per line, `entity_id` then a tab then the area name.
+    static func areaNames(from data: Data) throws -> [String: String] {
+        if !data.isEmpty, (try? jsonObject(data)) != nil {
+            throw HomeAssistantClientError.malformedResponse
+        }
+        let text = String(data: data, encoding: .utf8) ?? ""
+        var map: [String: String] = [:]
+        for line in text.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let raw = parts.first else { continue }
+            guard case .valid(let entityId) = EntityIDRules.check(String(raw)) else { continue }
+            let area = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            if !area.isEmpty {
+                map[entityId] = area
+            }
+        }
+        return map
+    }
+
     static func detail(from data: Data) -> String {
         guard let object = try? jsonObject(data) else {
             let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -330,12 +375,17 @@ enum HomeAssistantDecoding {
         let friendly = attributes?["friendly_name"] as? String
         let unit = attributes?["unit_of_measurement"] as? String
         let domain = entityId.split(separator: ".").first.map(String.init) ?? "unknown"
+        let light = LightColorMath.appearance(from: attributes)
         return HAEntityRecord(
             entityId: entityId,
             state: state,
             domain: domain,
             friendlyName: friendly,
-            unit: unit
+            unit: unit,
+            brightness: light.brightness,
+            red: light.red,
+            green: light.green,
+            blue: light.blue
         )
     }
 

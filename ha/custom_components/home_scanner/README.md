@@ -62,19 +62,23 @@ If HACS does not list it, use the manual copy. The files are the same.
 
 Create a Lovelace view with path `home-scanner` so the iPhone can open it with `homeassistant://navigate/lovelace/home-scanner`.
 
+Install the card from `web/home-scanner-card/README.md`, then:
+
 ```yaml
 title: Home
 views:
   - title: Floor
     path: home-scanner
     cards:
-      - type: markdown
-        content: >
-          Point the Home Scanner card at
-          /local/home_scanner/<room-id>/layout.json and model.glb.
+      - type: custom:home-scanner-card
+        title: Home Scanner
 ```
 
-The long-lived access token is created in your Home Assistant profile. It stays in the iPhone Keychain. Do not put it in `layout.json`.
+The card reads `/local/home_scanner/<id>/layout.json` and `model.glb`. After an upload the integration rewrites `/config/www/home_scanner/index.json` and serves the same list at `GET /api/home_scanner/rooms`. A card config can also name the slugs itself.
+
+An existing iframe can keep using `/local/home_scanner/viewer.html`. The copy in `web/viewer/viewer.html` is the one in this repo. It accepts `?slug=`, `?room=`, or `?id=`.
+
+The long-lived access token is created in your Home Assistant profile. It stays in the iPhone Keychain. Do not put it in `layout.json` or in the card config.
 
 ## Zip fallback
 

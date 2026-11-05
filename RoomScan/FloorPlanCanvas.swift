@@ -8,7 +8,7 @@ struct FloorPlanCanvas: View {
     var selectedPinID: UUID?
     var placing: Bool
     var pinCaptions: [UUID: String] = [:]
-    var pinStates: [UUID: String] = [:]
+    var pinLooks: [UUID: PinLook] = [:]
     var changes: [ObjectChange] = []
     var heatSamples: [HeatSample] = []
     var interactive: Bool = true
@@ -430,12 +430,13 @@ struct FloorPlanCanvas: View {
     }
 
     private func pinColor(_ pin: DevicePin) -> Color {
-        guard let state = pinStates[pin.id] else {
-            return pin.entityId == nil ? palette.accent : palette.ink
-        }
-        if state == "on" { return Color(red: 0.18, green: 0.55, blue: 0.32) }
-        if state == "off" { return palette.muted }
-        return Color(red: 0.20, green: 0.38, blue: 0.55)
+        PinPaint.color(
+            pinLooks[pin.id],
+            linked: pin.entityId != nil,
+            muted: palette.muted,
+            accent: palette.accent,
+            ink: palette.ink
+        )
     }
 
     private func point(_ value: (x: Double, y: Double)) -> CGPoint {

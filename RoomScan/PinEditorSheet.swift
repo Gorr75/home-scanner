@@ -88,6 +88,16 @@ struct PinEditorSheet: View {
                 if let snapshot {
                     Section(assistant.isConfigured ? "Home Assistant" : "Sample state") {
                         LabeledContent("State", value: snapshot.displayState)
+                        if snapshot.domain == "light", let red = snapshot.red, let green = snapshot.green, let blue = snapshot.blue {
+                            HStack {
+                                Text("Colour")
+                                Spacer()
+                                Circle()
+                                    .fill(Color(red: red, green: green, blue: blue))
+                                    .frame(width: 18, height: 18)
+                                    .overlay(Circle().stroke(Theme.line, lineWidth: 1))
+                            }
+                        }
                         if snapshot.isToggleable {
                             Button(snapshot.isOn ? "Turn off" : "Turn on", action: onToggle)
                         }

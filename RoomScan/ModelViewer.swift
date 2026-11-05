@@ -15,12 +15,13 @@ struct RoomModelView: UIViewRepresentable {
     var usdzURL: URL?
     var pins: [DevicePin]
     var showPins: Bool
-    var stateByEntity: [String: String]
+    var looksByEntity: [String: PinLook]
     var captionByPin: [UUID: String]
     var selectedPinID: UUID?
     var placementEnabled: Bool
     var cameraToken: Int
     var onSelectPin: (UUID?) -> Void
+    var onTogglePin: (UUID) -> Void
     var onPlace: (Vec3) -> Void
     var onRenderedUSDZ: (Bool) -> Void
     var surfacePaints: [SurfacePaint] = []
@@ -231,8 +232,12 @@ struct RoomModelView: UIViewRepresentable {
             root.name = "pin:\(pin.id.uuidString)"
             let sphere = SCNSphere(radius: pin.id == selectedPinID ? 0.09 : 0.07)
             sphere.segmentCount = 18
-            let pinMaterial = material(color(for: pin), roughness: 0.35)
-            if pin.id == selectedPinID {
+            let pinColor = color(for: pin)
+            let pinMaterial = material(pinColor, roughness: 0.35)
+            if let look = look(for: pin), look.domain == "light", look.state == "on" {
+                pinMaterial.emission.contents = pinColor
+                pinMaterial.lightingModel = .constant
+            } else if pin.id == selectedPinID {
                 pinMaterial.emission.contents = UIColor(white: 0.4, alpha: 1)
             }
             sphere.materials = [pinMaterial]
@@ -276,13 +281,13 @@ struct RoomModelView: UIViewRepresentable {
         view.pointOfView = cameraNode
     }
 
+    private func look(for pin: DevicePin) -> PinLook? {
+        guard let entityId = pin.entityId else { return nil }
+        return looksByEntity[entityId]
+    }
+
     private func color(for pin: DevicePin) -> UIColor {
-        guard let entityId = pin.entityId, let state = stateByEntity[entityId] else {
-            return Self.accent
-        }
-        if state == "on" { return Self.onColor }
-        if state == "off" { return Self.offColor }
-        return Self.readingColor
+        PinPaint.uiColor(look(for: pin), linked: pin.entityId != nil)
     }
 
     private func labelNode(_ text: String) -> SCNNode {
@@ -328,10 +333,6 @@ struct RoomModelView: UIViewRepresentable {
         return material
     }
 
-    private static let accent = UIColor(Theme.accentOnCharcoal)
-    private static let onColor = UIColor(red: 0.18, green: 0.55, blue: 0.32, alpha: 1)
-    private static let offColor = UIColor(red: 0.45, green: 0.42, blue: 0.38, alpha: 1)
-    private static let readingColor = UIColor(red: 0.20, green: 0.38, blue: 0.55, alpha: 1)
     private static let wallColor = UIColor(red: 0.91, green: 0.88, blue: 0.83, alpha: 1)
     private static let objectColor = UIColor(red: 0.62, green: 0.55, blue: 0.46, alpha: 1)
     private static let doorColor = UIColor(red: 0.55, green: 0.35, blue: 0.24, alpha: 1)
@@ -360,6 +361,7 @@ struct RoomModelView: UIViewRepresentable {
             let hits = view.hitTest(point, options: nil)
             if let pin = hits.lazy.compactMap({ self.pinID(in: $0.node) }).first {
                 parent.onSelectPin(pin)
+                parent.onTogglePin(pin)
                 return
             }
             guard parent.placementEnabled, let hit = hits.first(where: { self.pinID(in: $0.node) == nil }) else {

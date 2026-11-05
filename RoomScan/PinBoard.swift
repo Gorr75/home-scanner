@@ -80,23 +80,22 @@ final class PinBoard {
         }
     }
 
+    func setBrightness(_ level: Double, pin: DevicePin) async {
+        guard let raw = pin.entityId, case .valid(let id) = EntityIDRules.check(raw) else { return }
+        do {
+            let updated = try await provider.setBrightness(level, entityId: id)
+            snapshots[updated.entityId] = updated
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     func apply(_ snapshot: EntitySnapshot) {
         snapshots[snapshot.entityId] = snapshot
         lastError = nil
         socketConnected = true
         updateBanner(hasLinks: true)
-    }
-
-    func stateMap(for pins: [DevicePin]) -> [String: String] {
-        var map: [String: String] = [:]
-        for pin in pins {
-            guard let snapshot = snapshot(for: pin) else { continue }
-            map[snapshot.entityId] = snapshot.state
-            if let raw = pin.entityId {
-                map[raw] = snapshot.state
-            }
-        }
-        return map
     }
 
     func captions(for pins: [DevicePin]) -> [UUID: String] {
@@ -108,11 +107,24 @@ final class PinBoard {
         return map
     }
 
-    func states(for pins: [DevicePin]) -> [UUID: String] {
-        var map: [UUID: String] = [:]
+    func looksByPin(for pins: [DevicePin]) -> [UUID: PinLook] {
+        var map: [UUID: PinLook] = [:]
         for pin in pins {
             guard let snapshot = snapshot(for: pin) else { continue }
-            map[pin.id] = snapshot.state
+            map[pin.id] = PinLook(snapshot)
+        }
+        return map
+    }
+
+    func looksByEntity(for pins: [DevicePin]) -> [String: PinLook] {
+        var map: [String: PinLook] = [:]
+        for pin in pins {
+            guard let snapshot = snapshot(for: pin) else { continue }
+            let look = PinLook(snapshot)
+            map[snapshot.entityId] = look
+            if let raw = pin.entityId {
+                map[raw] = look
+            }
         }
         return map
     }
