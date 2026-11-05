@@ -12,6 +12,8 @@ struct FloorPlanCanvas: View {
     var changes: [ObjectChange] = []
     var heatSamples: [HeatSample] = []
     var interactive: Bool = true
+    /// Full floor-plan viewers draw on charcoal. List thumbnails stay on paper.
+    var onCharcoal: Bool = false
     var onSelectPin: (UUID?) -> Void = { _ in }
     var onMovePin: (UUID, Double, Double) -> Void = { _, _, _ in }
     var onCreate: (Double, Double) -> Void = { _, _ in }
@@ -28,6 +30,35 @@ struct FloorPlanCanvas: View {
         case pan
         case pin(UUID)
     }
+
+    private struct Palette {
+        var ground: Color
+        var ink: Color
+        var muted: Color
+        var line: Color
+        var accent: Color
+        var door: Color
+
+        static let paper = Palette(
+            ground: Theme.card,
+            ink: Theme.ink,
+            muted: Theme.secondary,
+            line: Theme.line.opacity(0.7),
+            accent: Theme.accent,
+            door: Color(red: 0.55, green: 0.35, blue: 0.24)
+        )
+
+        static let charcoal = Palette(
+            ground: Theme.charcoal,
+            ink: Theme.chalk,
+            muted: Theme.mist,
+            line: Theme.charcoalLine,
+            accent: Theme.accentOnCharcoal,
+            door: Color(red: 0.76, green: 0.56, blue: 0.40)
+        )
+    }
+
+    private var palette: Palette { onCharcoal ? .charcoal : .paper }
 
     var body: some View {
         GeometryReader { geo in
@@ -60,7 +91,7 @@ struct FloorPlanCanvas: View {
                     context.draw(
                         Text("No measurements yet")
                             .font(.subheadline)
-                            .foregroundStyle(Theme.secondary),
+                            .foregroundStyle(palette.muted),
                         at: CGPoint(x: size.width / 2, y: size.height / 2)
                     )
                 }
@@ -76,7 +107,7 @@ struct FloorPlanCanvas: View {
                         Button("Fit") { resetView() }
                             .font(.caption.weight(.medium))
                             .buttonStyle(.bordered)
-                            .tint(Theme.ink)
+                            .tint(palette.ink)
                             .padding(8)
                             .accessibilityLabel("Fit the floor plan")
                     }
@@ -84,7 +115,8 @@ struct FloorPlanCanvas: View {
                 canvas.allowsHitTesting(false)
             }
         }
-        .background(Theme.card)
+        .background(palette.ground)
+        .environment(\.colorScheme, onCharcoal ? .dark : .light)
         .accessibilityLabel("Floor plan")
     }
 
@@ -235,7 +267,7 @@ struct FloorPlanCanvas: View {
             path.addLine(to: right)
             z += 1
         }
-        context.stroke(path, with: .color(Theme.line.opacity(0.7)), lineWidth: 1)
+        context.stroke(path, with: .color(palette.line), lineWidth: 1)
     }
 
     private func drawFloor(_ layer: PlanLayer, in context: GraphicsContext, projector: PlanProjector) {
@@ -248,7 +280,7 @@ struct FloorPlanCanvas: View {
                 path.addLine(to: point(projector.screen(x: world.x, z: world.z)))
             }
             path.closeSubpath()
-            context.fill(path, with: .color(Theme.roomTint(layer.tintIndex)))
+            context.fill(path, with: .color(Theme.roomTint(layer.tintIndex, onCharcoal: onCharcoal)))
         }
     }
 
@@ -273,7 +305,7 @@ struct FloorPlanCanvas: View {
             context.draw(
                 Text("\(ObjectLabels.title(for: object.category))\n\(ObjectLabels.footprint(object))")
                     .font(.caption2)
-                    .foregroundStyle(Theme.ink),
+                    .foregroundStyle(palette.ink),
                 at: screen
             )
         }
@@ -295,7 +327,7 @@ struct FloorPlanCanvas: View {
         switch changeKind(id) {
         case .added: return Color(red: 0.18, green: 0.55, blue: 0.32).opacity(0.25)
         case .moved: return Theme.warn.opacity(0.2)
-        case .removed, .unchanged: return Theme.ink.opacity(0.08)
+        case .removed, .unchanged: return palette.ink.opacity(onCharcoal ? 0.16 : 0.08)
         }
     }
 
@@ -303,7 +335,7 @@ struct FloorPlanCanvas: View {
         switch changeKind(id) {
         case .added: return Color(red: 0.18, green: 0.55, blue: 0.32)
         case .moved: return Theme.warn
-        case .removed, .unchanged: return Theme.ink.opacity(0.35)
+        case .removed, .unchanged: return palette.ink.opacity(onCharcoal ? 0.75 : 0.35)
         }
     }
 
@@ -332,7 +364,7 @@ struct FloorPlanCanvas: View {
             path.addLine(to: point(projector.screen(x: end.x, z: end.z)))
         }
         let width = max(3, 0.12 * projector.metersToPoints * projector.userScale)
-        context.stroke(path, with: .color(Theme.ink), style: StrokeStyle(lineWidth: width, lineCap: .square))
+        context.stroke(path, with: .color(palette.ink), style: StrokeStyle(lineWidth: width, lineCap: .square))
     }
 
     private func drawOpenings(_ layer: PlanLayer, in context: GraphicsContext, projector: PlanProjector) {
@@ -344,8 +376,8 @@ struct FloorPlanCanvas: View {
             path.move(to: point(projector.screen(x: start.x, z: start.z)))
             path.addLine(to: point(projector.screen(x: end.x, z: end.z)))
             let erase = max(5, 0.16 * projector.metersToPoints * projector.userScale)
-            context.stroke(path, with: .color(Theme.card), style: StrokeStyle(lineWidth: erase, lineCap: .butt))
-            let color: Color = opening.kind == .window ? Theme.accent : Color(red: 0.55, green: 0.35, blue: 0.24)
+            context.stroke(path, with: .color(palette.ground), style: StrokeStyle(lineWidth: erase, lineCap: .butt))
+            let color: Color = opening.kind == .window ? palette.accent : palette.door
             context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round))
         }
     }
@@ -356,7 +388,7 @@ struct FloorPlanCanvas: View {
         context.draw(
             Text(layer.name)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(Theme.secondary),
+                .foregroundStyle(palette.muted),
             at: point(screen)
         )
     }
@@ -374,7 +406,7 @@ struct FloorPlanCanvas: View {
                 context.draw(
                     Text(caption)
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(Theme.ink),
+                        .foregroundStyle(palette.ink),
                     at: CGPoint(x: screen.x + radius + 4, y: screen.y),
                     anchor: .leading
                 )
@@ -390,19 +422,19 @@ struct FloorPlanCanvas: View {
         let y = size.height - 16
         path.move(to: CGPoint(x: 16, y: y))
         path.addLine(to: CGPoint(x: 16 + pixels, y: y))
-        context.stroke(path, with: .color(Theme.ink), lineWidth: 1.5)
+        context.stroke(path, with: .color(palette.ink), lineWidth: 1.5)
         context.draw(
-            Text("1 m").font(.caption2).foregroundStyle(Theme.ink),
+            Text("1 m").font(.caption2).foregroundStyle(palette.ink),
             at: CGPoint(x: 16 + pixels / 2, y: y - 10)
         )
     }
 
     private func pinColor(_ pin: DevicePin) -> Color {
         guard let state = pinStates[pin.id] else {
-            return pin.entityId == nil ? Theme.accent : Theme.ink
+            return pin.entityId == nil ? palette.accent : palette.ink
         }
         if state == "on" { return Color(red: 0.18, green: 0.55, blue: 0.32) }
-        if state == "off" { return Theme.secondary }
+        if state == "off" { return palette.muted }
         return Color(red: 0.20, green: 0.38, blue: 0.55)
     }
 

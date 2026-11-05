@@ -31,7 +31,7 @@ struct RoomModelView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
-        view.backgroundColor = UIColor(red: 0.957, green: 0.941, blue: 0.910, alpha: 1)
+        view.backgroundColor = UIColor(Theme.charcoal)
         view.antialiasingMode = .multisampling4X
         view.autoenablesDefaultLighting = true
         view.allowsCameraControl = true
@@ -45,6 +45,7 @@ struct RoomModelView: UIViewRepresentable {
 
     func updateUIView(_ view: SCNView, context: Context) {
         context.coordinator.parent = self
+        view.backgroundColor = UIColor(Theme.charcoal)
         let urlKey = usdzURL?.path
         let geometryChanged = context.coordinator.layers != layers || context.coordinator.urlKey != urlKey
         if geometryChanged || view.scene == nil {
@@ -289,13 +290,28 @@ struct RoomModelView: UIViewRepresentable {
         geometry.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
         geometry.flatness = 0.3
         geometry.alignmentMode = CATextLayerAlignmentMode.center.rawValue
-        geometry.materials = [material(Self.ink, roughness: 1)]
+        let textMaterial = material(UIColor(Theme.chalk), roughness: 1)
+        textMaterial.lightingModel = .constant
+        geometry.materials = [textMaterial]
         let node = SCNNode(geometry: geometry)
         let (minBound, maxBound) = node.boundingBox
         let dx = (maxBound.x - minBound.x) / 2
         let dy = (maxBound.y - minBound.y) / 2
         node.pivot = SCNMatrix4MakeTranslation(minBound.x + dx, minBound.y + dy, 0)
         node.scale = SCNVector3(0.008, 0.008, 0.008)
+        let plate = SCNPlane(
+            width: CGFloat(maxBound.x - minBound.x) + 28,
+            height: CGFloat(maxBound.y - minBound.y) + 18
+        )
+        plate.cornerRadius = 8
+        let plateMaterial = SCNMaterial()
+        plateMaterial.diffuse.contents = UIColor(Theme.charcoal).withAlphaComponent(0.88)
+        plateMaterial.lightingModel = .constant
+        plateMaterial.isDoubleSided = true
+        plate.materials = [plateMaterial]
+        let plateNode = SCNNode(geometry: plate)
+        plateNode.position = SCNVector3(minBound.x + dx, minBound.y + dy, -0.5)
+        node.addChildNode(plateNode)
         let billboard = SCNBillboardConstraint()
         billboard.freeAxes = .all
         node.constraints = [billboard]
@@ -312,8 +328,7 @@ struct RoomModelView: UIViewRepresentable {
         return material
     }
 
-    private static let ink = UIColor(red: 0.110, green: 0.098, blue: 0.082, alpha: 1)
-    private static let accent = UIColor(red: 0.122, green: 0.420, blue: 0.353, alpha: 1)
+    private static let accent = UIColor(Theme.accentOnCharcoal)
     private static let onColor = UIColor(red: 0.18, green: 0.55, blue: 0.32, alpha: 1)
     private static let offColor = UIColor(red: 0.45, green: 0.42, blue: 0.38, alpha: 1)
     private static let readingColor = UIColor(red: 0.20, green: 0.38, blue: 0.55, alpha: 1)

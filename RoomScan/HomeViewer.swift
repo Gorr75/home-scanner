@@ -20,7 +20,7 @@ struct HomeViewer: View {
     private var home: Home? { store.home(id: homeID) }
 
     var body: some View {
-        PaperScreen {
+        CharcoalScreen {
             if let home {
                 VStack(spacing: 0) {
                     viewer(home)
@@ -62,11 +62,11 @@ struct HomeViewer: View {
             if let home {
                 Text(caption(home))
                     .font(.footnote)
-                    .foregroundStyle(Theme.secondary)
+                    .foregroundStyle(Theme.mist)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(Theme.paper)
+                    .background(Theme.charcoal)
             }
         }
         .task(id: home?.pins.map { "\($0.id.uuidString)|\($0.entityId ?? "")" }.joined(separator: ",") ?? "") {
@@ -89,6 +89,7 @@ struct HomeViewer: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .charcoalChrome()
     }
 
     @ViewBuilder
@@ -103,6 +104,7 @@ struct HomeViewer: View {
                 pinCaptions: pinBoard.captions(for: home.pins),
                 pinStates: pinBoard.states(for: home.pins),
                 heatSamples: showHeat ? heatSamples(for: home) : [],
+                onCharcoal: true,
                 onSelectPin: { selectedPinID = $0 },
                 onMovePin: { id, x, z in move(id, x: x, z: z) },
                 onCreate: { x, z in create(in: home, x: x, z: z, y: placeKind.defaultHeight) }
@@ -162,10 +164,12 @@ struct HomeViewer: View {
     private func selectionBar(_ pin: DevicePin) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(pin.name).font(.subheadline.weight(.semibold))
+                Text(pin.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.chalk)
                 Text(pinBoard.snapshot(for: pin)?.displayState ?? pin.entityId ?? "Not linked")
                     .font(.caption)
-                    .foregroundStyle(Theme.secondary)
+                    .foregroundStyle(Theme.mist)
             }
             Spacer()
             if let snapshot = pinBoard.snapshot(for: pin), snapshot.isToggleable {
@@ -176,10 +180,11 @@ struct HomeViewer: View {
             }
             Button("Edit") { editor = pin }
                 .buttonStyle(.borderedProminent)
+                .tint(Theme.accent)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Theme.card)
+        .background(Theme.navy)
     }
 
     private func heatSamples(for home: Home) -> [HeatSample] {

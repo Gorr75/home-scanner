@@ -188,6 +188,7 @@ struct HomeDetailView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
         }
+        .paperChrome()
     }
 
     @ToolbarContentBuilder
