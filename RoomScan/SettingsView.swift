@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var status: String?
     @State private var testing = false
     @State private var errorMessage: String?
+    @AppStorage(DaylightPreference.enabledKey) private var daylightOn = true
 
     var body: some View {
         NavigationStack {
@@ -47,6 +48,11 @@ struct SettingsView: View {
                     .disabled(!assistant.hasToken && urlDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } footer: {
                     Text(status ?? assistant.serverLabel)
+                }
+                Section {
+                    Toggle("Daylight by time of day", isOn: $daylightOn)
+                } footer: {
+                    Text("The 3D view warms at sunrise and sunset, stays neutral at midday, and dims to blue at night. Home Assistant's sun is used when you are connected. Otherwise the phone clock is used, with sunrise at 06:00 and sunset at 18:00. A slider on the model previews another time. Lights that are on keep their own colour.")
                 }
             }
             .scrollContentBackground(.hidden)

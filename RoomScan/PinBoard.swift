@@ -12,6 +12,8 @@ final class PinBoard {
     @ObservationIgnored private var socketTask: Task<Void, Never>?
 
     private(set) var snapshots: [String: EntitySnapshot] = [:]
+    /// Latest `sun.sun` sample when Home Assistant is connected. Nil on the mock provider.
+    private(set) var sun: SunSample?
     private(set) var banner = "States are sample data on this iPhone. Home Assistant is not connected."
     private(set) var lastError: String?
     private(set) var isLive = false
@@ -31,6 +33,7 @@ final class PinBoard {
         isLive = live
         socketConnected = false
         snapshots = [:]
+        sun = nil
         lastError = nil
         banner = live
             ? "Connecting to Home Assistant."
@@ -47,7 +50,14 @@ final class PinBoard {
 
     func refresh(pins: [DevicePin]) async {
         watched = pins
-        let ids = linkedIDs(in: pins)
+        if !isLive {
+            sun = nil
+        }
+        let linked = linkedIDs(in: pins)
+        var ids = linked
+        if isLive && !ids.contains(DaylightMath.sunEntityID) {
+            ids.append(DaylightMath.sunEntityID)
+        }
         guard !ids.isEmpty else {
             snapshots = [:]
             banner = "No linked devices yet. Add an entity id such as light.kitchen."
@@ -60,12 +70,18 @@ final class PinBoard {
             for item in loaded {
                 map[item.entityId] = item
             }
+            if let sunSnapshot = map[DaylightMath.sunEntityID] {
+                sun = SunSample(sunSnapshot)
+            }
+            if !linked.contains(DaylightMath.sunEntityID) {
+                map.removeValue(forKey: DaylightMath.sunEntityID)
+            }
             snapshots = map
             lastError = nil
-            updateBanner(hasLinks: true)
+            updateBanner(hasLinks: !linked.isEmpty)
         } catch {
             lastError = error.localizedDescription
-            updateBanner(hasLinks: true)
+            updateBanner(hasLinks: !linked.isEmpty)
         }
     }
 
@@ -92,6 +108,9 @@ final class PinBoard {
     }
 
     func apply(_ snapshot: EntitySnapshot) {
+        if snapshot.entityId == DaylightMath.sunEntityID {
+            sun = SunSample(snapshot)
+        }
         snapshots[snapshot.entityId] = snapshot
         lastError = nil
         socketConnected = true

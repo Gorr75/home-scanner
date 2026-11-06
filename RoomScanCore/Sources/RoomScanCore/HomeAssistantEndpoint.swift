@@ -163,6 +163,10 @@ public struct HAEntityRecord: Equatable, Sendable, Identifiable {
     public var red: Double?
     public var green: Double?
     public var blue: Double?
+    /// Degrees above the horizon. Set for `sun.sun` only.
+    public var elevation: Double?
+    public var nextRising: Date?
+    public var nextSetting: Date?
 
     public init(
         entityId: String,
@@ -173,7 +177,10 @@ public struct HAEntityRecord: Equatable, Sendable, Identifiable {
         brightness: Double? = nil,
         red: Double? = nil,
         green: Double? = nil,
-        blue: Double? = nil
+        blue: Double? = nil,
+        elevation: Double? = nil,
+        nextRising: Date? = nil,
+        nextSetting: Date? = nil
     ) {
         self.entityId = entityId
         self.state = state
@@ -184,6 +191,9 @@ public struct HAEntityRecord: Equatable, Sendable, Identifiable {
         self.green = green
         self.red = red
         self.blue = blue
+        self.elevation = elevation
+        self.nextRising = nextRising
+        self.nextSetting = nextSetting
     }
 
     public var id: String { entityId }
@@ -198,7 +208,10 @@ public struct HAEntityRecord: Equatable, Sendable, Identifiable {
             brightness: brightness,
             red: red,
             green: green,
-            blue: blue
+            blue: blue,
+            elevation: elevation,
+            nextRising: nextRising,
+            nextSetting: nextSetting
         )
     }
 
@@ -376,6 +389,7 @@ enum HomeAssistantDecoding {
         let unit = attributes?["unit_of_measurement"] as? String
         let domain = entityId.split(separator: ".").first.map(String.init) ?? "unknown"
         let light = LightColorMath.appearance(from: attributes)
+        let sun = domain == "sun"
         return HAEntityRecord(
             entityId: entityId,
             state: state,
@@ -385,7 +399,10 @@ enum HomeAssistantDecoding {
             brightness: light.brightness,
             red: light.red,
             green: light.green,
-            blue: light.blue
+            blue: light.blue,
+            elevation: sun ? DaylightMath.number(from: attributes?["elevation"]) : nil,
+            nextRising: sun ? DaylightMath.date(from: attributes?["next_rising"]) : nil,
+            nextSetting: sun ? DaylightMath.date(from: attributes?["next_setting"]) : nil
         )
     }
 

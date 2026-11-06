@@ -30,6 +30,8 @@ struct RoomDetailView: View {
     @State private var texturing = false
     @State private var pendingPlacements: [DevicePin] = []
     @State private var confirmAutoPlace = false
+    @State private var previewHour: Double?
+    @AppStorage(DaylightPreference.enabledKey) private var daylightEnabled = true
     @Environment(\.dismiss) private var dismiss
 
     private enum Page: String, CaseIterable, Identifiable {
@@ -160,7 +162,13 @@ struct RoomDetailView: View {
     }
 
     private func model(_ home: Home, room: Room) -> some View {
-        ZStack(alignment: .bottomLeading) {
+        TimelineView(.periodic(from: .now, by: 30)) { timeline in
+            let tint = DaylightScene.tint(
+                enabled: daylightEnabled,
+                previewHour: previewHour,
+                sun: pinBoard.sun,
+                now: timeline.date
+            )
             RoomModelView(
                 layers: PlanLayers.single(room),
                 usdzURL: store.roomModelURL(in: home, room: room),
@@ -175,9 +183,19 @@ struct RoomDetailView: View {
                 onTogglePin: { togglePin($0) },
                 onPlace: { place(at: $0, in: room) },
                 onRenderedUSDZ: { renderedUSDZ = $0 },
-                surfacePaints: TexturePaints.forRoom(room, homeId: homeID, store: store)
+                surfacePaints: TexturePaints.forRoom(room, homeId: homeID, store: store),
+                daylight: tint
             )
-            caption(room)
+            .overlay(alignment: .top) {
+                if let tint {
+                    DaylightScrubber(previewHour: $previewHour, now: timeline.date, tint: tint)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 8)
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                caption(room)
+            }
         }
     }
 

@@ -1,10 +1,12 @@
 # Roadmap
 
-Phone upload to Home Assistant is already live. The app reads entity state over REST and a WebSocket, and the optional `home_scanner` integration accepts `GET /api/home_scanner/health` and `POST /api/home_scanner/upload/{room}`. Layouts land at `/local/home_scanner/<id>/layout.json`, `model.glb`, and an optional `model.usdz`.
+Phone upload to Home Assistant is live. The app reads entity state over REST and a WebSocket, and the optional `home_scanner` integration accepts `GET /api/home_scanner/health` and `POST /api/home_scanner/upload/{room}`. Layouts land at `/local/home_scanner/<id>/layout.json`, `model.glb`, and an optional `model.usdz`.
 
-A productized Lovelace card was still missing. Dashboards that iframe `/local/home_scanner/viewer.html` are hand-wired. The card, live light colour in the 3D view, and placing pins from areas are the immediate track, in that order. The v0.3–v0.5 and Later lists stay. They are not the work to do first.
+The Lovelace card, live light colour in the 3D view, placing pins from areas, and daylight by time of day are in the app. v0.4, v0.5, and Later are what remains.
 
 ## Now
+
+Done, in this order:
 
 1. **Lovelace Home Scanner card.** A custom card discovers rooms under `/local/home_scanner/` (an index written by the integration, `GET /api/home_scanner/rooms`, or an explicit list in the card config) and opens the 3D viewer for the selected folder. That replaces a hand-wired iframe dashboard. The upload contract is unchanged: `layout.json` and `model.glb` in each home or room folder. `viewer.html` remains a static page for an existing iframe.
 2. **Live light colour and brightness in the app 3D view.** Pins use the colour and brightness already present on the Home Assistant state (`rgb_color`, `hs_color`, or colour temperature, plus `brightness`), not only on/off text. A tap on the in-scene label or pin toggles a light, switch, or fan. Dimming stays on the selection bar, which is the control that was already next to the model.
@@ -14,9 +16,9 @@ Direct Home Assistant WebSocket mode from the old v0.3 list is already in the ap
 
 ## v0.3
 
-What remains from this version after the Now list:
+Done:
 
-- **Daylight by time of day.** Once the room reacts to light colour, the clock can tint the scene without a second art pipeline.
+- **Daylight by time of day.** The charcoal 3D view tints its lights from Home Assistant `sun.sun` when the phone is connected (elevation, then `next_rising` / `next_setting`, then above or below the horizon). With no connection it uses the device clock and a location-free day, sunrise at 06:00 and sunset at 18:00. Sunrise and sunset are warm and low, midday is neutral and bright, and night is a dim blue. Lamps that are on keep their own colour and cast into the room, so they still read after dark. Settings has a toggle, on by default, and the model has a time slider for a preview. The Lovelace card applies the same tint from the dashboard's `sun.sun`.
 
 ## v0.4
 

@@ -25,6 +25,8 @@ struct RoomModelView: UIViewRepresentable {
     var onPlace: (Vec3) -> Void
     var onRenderedUSDZ: (Bool) -> Void
     var surfacePaints: [SurfacePaint] = []
+    /// Nil keeps the neutral studio lights. A value tints the room and lets on-lights cast colour.
+    var daylight: DaylightTint? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -34,7 +36,7 @@ struct RoomModelView: UIViewRepresentable {
         let view = SCNView()
         view.backgroundColor = UIColor(Theme.charcoal)
         view.antialiasingMode = .multisampling4X
-        view.autoenablesDefaultLighting = true
+        view.autoenablesDefaultLighting = false
         view.allowsCameraControl = true
         view.defaultCameraController.interactionMode = .orbitTurntable
         view.defaultCameraController.inertiaEnabled = true
@@ -46,7 +48,7 @@ struct RoomModelView: UIViewRepresentable {
 
     func updateUIView(_ view: SCNView, context: Context) {
         context.coordinator.parent = self
-        view.backgroundColor = UIColor(Theme.charcoal)
+        view.autoenablesDefaultLighting = false
         let urlKey = usdzURL?.path
         let geometryChanged = context.coordinator.layers != layers || context.coordinator.urlKey != urlKey
         if geometryChanged || view.scene == nil {
@@ -76,9 +78,41 @@ struct RoomModelView: UIViewRepresentable {
             context.coordinator.cameraToken = cameraToken
         }
         if let scene = view.scene {
+            applyLighting(to: scene, in: view)
             replacePins(in: scene)
             replaceTextures(in: scene)
         }
+    }
+
+    /// Sun or studio key plus an ambient fill. Pin bulbs are added with the pins so a
+    /// lamp stays in its own colour when the room goes blue.
+    private func applyLighting(to scene: SCNScene, in view: SCNView) {
+        let backdrop = DaylightPaint.background(daylight)
+        view.backgroundColor = backdrop
+        scene.background.contents = backdrop
+        let tint = daylight ?? .studio
+        let key = lightNode(named: "daylight-key", type: .directional, in: scene)
+        key.light?.color = DaylightPaint.color(tint)
+        key.light?.intensity = CGFloat(1100 * tint.key)
+        key.eulerAngles = SCNVector3(-1.0, DaylightPaint.yaw(for: tint.phase), 0)
+        let fill = lightNode(named: "daylight-fill", type: .ambient, in: scene)
+        fill.light?.color = DaylightPaint.color(tint)
+        fill.light?.intensity = CGFloat(700 * tint.fill)
+    }
+
+    private func lightNode(named name: String, type: SCNLight.LightType, in scene: SCNScene) -> SCNNode {
+        if let existing = scene.rootNode.childNode(withName: name, recursively: false) {
+            existing.light?.type = type
+            return existing
+        }
+        let node = SCNNode()
+        node.name = name
+        let light = SCNLight()
+        light.type = type
+        light.castsShadow = false
+        node.light = light
+        scene.rootNode.addChildNode(node)
+        return node
     }
 
     private func replaceTextures(in scene: SCNScene) {
@@ -234,16 +268,27 @@ struct RoomModelView: UIViewRepresentable {
             sphere.segmentCount = 18
             let pinColor = color(for: pin)
             let pinMaterial = material(pinColor, roughness: 0.35)
-            if let look = look(for: pin), look.domain == "light", look.state == "on" {
+            let look = look(for: pin)
+            let lampOn = look?.domain == "light" && look?.state == "on"
+            if lampOn {
                 pinMaterial.emission.contents = pinColor
                 pinMaterial.lightingModel = .constant
+                if daylight != nil {
+                    pinMaterial.emission.intensity = CGFloat(1 + 1.4 * (1 - lighting.key))
+                }
             } else if pin.id == selectedPinID {
                 pinMaterial.emission.contents = UIColor(white: 0.4, alpha: 1)
+            } else if daylight != nil, lighting.key < 0.35 {
+                pinMaterial.emission.contents = pinColor
+                pinMaterial.emission.intensity = 0.45
             }
             sphere.materials = [pinMaterial]
             let sphereNode = SCNNode(geometry: sphere)
             sphereNode.position = SCNVector3(Float(world.x), Float(world.y), Float(world.z))
             root.addChildNode(sphereNode)
+            if lampOn, daylight != nil, let look {
+                root.addChildNode(lampLight(look, at: world))
+            }
             let caption = captionByPin[pin.id]
             let label = caption.map { "\(pin.name)\n\($0)" } ?? pin.name
             let textNode = labelNode(label)
@@ -251,7 +296,11 @@ struct RoomModelView: UIViewRepresentable {
             root.addChildNode(textNode)
             if world.y > 0.25 {
                 let stem = SCNCylinder(radius: 0.012, height: CGFloat(world.y))
-                stem.materials = [material(color(for: pin).withAlphaComponent(0.85), roughness: 0.5)]
+                let stemMaterial = material(color(for: pin).withAlphaComponent(0.85), roughness: 0.5)
+                if lampOn {
+                    stemMaterial.lightingModel = .constant
+                }
+                stem.materials = [stemMaterial]
                 let stemNode = SCNNode(geometry: stem)
                 stemNode.position = SCNVector3(Float(world.x), Float(world.y / 2), Float(world.z))
                 root.addChildNode(stemNode)
@@ -279,6 +328,30 @@ struct RoomModelView: UIViewRepresentable {
         cameraNode.look(at: SCNVector3(Float(center.x), Float(min(max(center.y, 0.4), 1.4)), Float(center.z)))
         scene.rootNode.addChildNode(cameraNode)
         view.pointOfView = cameraNode
+    }
+
+    private var lighting: DaylightTint { daylight ?? .studio }
+
+    /// Omni at an on-light. Intensity rises as the sun drops so the bulb still colours the room at night.
+    private func lampLight(_ look: PinLook, at world: Vec3) -> SCNNode {
+        let light = SCNLight()
+        light.type = .omni
+        light.castsShadow = false
+        let red = CGFloat(look.red ?? 1)
+        let green = CGFloat(look.green ?? 0.78)
+        let blue = CGFloat(look.blue ?? 0.45)
+        light.color = UIColor(red: red, green: green, blue: blue, alpha: 1)
+        let brightness = min(1, max(0, look.brightness ?? 1))
+        let presence = 0.35 + 0.65 * brightness
+        light.intensity = CGFloat(presence * (280 + 900 * (1 - lighting.key)))
+        light.attenuationStartDistance = 0.15
+        light.attenuationEndDistance = 3.4
+        light.attenuationFalloffExponent = 2
+        let node = SCNNode()
+        node.name = "pin-light"
+        node.light = light
+        node.position = SCNVector3(Float(world.x), Float(world.y), Float(world.z))
+        return node
     }
 
     private func look(for pin: DevicePin) -> PinLook? {
