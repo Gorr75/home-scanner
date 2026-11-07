@@ -1,6 +1,17 @@
 import SwiftUI
 import RoomScanCore
 
+/// How much annotation a plan canvas draws.
+/// Thumbnails and the home hero stay quiet. The floor-plan screen uses `.annotated`.
+enum PlanMarkup: Equatable {
+    /// Walls, room fills, and openings.
+    case structure
+    /// Structure, furniture outlines, and room names that fit without overlapping.
+    case preview
+    /// Furniture names, footprint sizes, and every room name.
+    case annotated
+}
+
 struct FloorPlanCanvas: View {
     var layers: [PlanLayer]
     var pins: [DevicePin]
@@ -12,6 +23,8 @@ struct FloorPlanCanvas: View {
     var changes: [ObjectChange] = []
     var heatSamples: [HeatSample] = []
     var interactive: Bool = true
+    /// List rows use `.structure`. The home screen hero uses `.preview`.
+    var markup: PlanMarkup = .annotated
     /// Full floor-plan viewers draw on charcoal. List thumbnails stay on paper.
     var onCharcoal: Bool = false
     var onSelectPin: (UUID?) -> Void = { _ in }
@@ -76,13 +89,24 @@ struct FloorPlanCanvas: View {
                 for layer in layers {
                     drawFloor(layer, in: context, projector: projector)
                 }
-                for layer in layers {
-                    drawObjects(layer, in: context, projector: projector)
+                if markup != .structure {
+                    for layer in layers {
+                        drawObjects(layer, in: context, projector: projector, labeled: markup == .annotated)
+                    }
                 }
                 for layer in layers {
                     drawWalls(layer, in: context, projector: projector)
                     drawOpenings(layer, in: context, projector: projector)
-                    drawLabel(layer, in: context, projector: projector)
+                }
+                switch markup {
+                case .annotated:
+                    for layer in layers {
+                        drawLabel(layer, in: context, projector: projector)
+                    }
+                case .preview:
+                    drawPreviewLabels(in: context, projector: projector)
+                case .structure:
+                    break
                 }
                 if showPins {
                     drawPins(in: context, projector: projector)
@@ -284,7 +308,12 @@ struct FloorPlanCanvas: View {
         }
     }
 
-    private func drawObjects(_ layer: PlanLayer, in context: GraphicsContext, projector: PlanProjector) {
+    private func drawObjects(
+        _ layer: PlanLayer,
+        in context: GraphicsContext,
+        projector: PlanProjector,
+        labeled: Bool
+    ) {
         for object in layer.plan.objects {
             let corners = object.footprint.map { shifted($0, by: layer.offset) }
             guard corners.count >= 3 else { continue }
@@ -300,14 +329,16 @@ struct FloorPlanCanvas: View {
                 with: .color(changeStroke(object.id)),
                 style: StrokeStyle(lineWidth: changeLineWidth(object.id), dash: changeDash(object.id))
             )
-            let anchor = shifted(object.center, by: layer.offset)
-            let screen = point(projector.screen(x: anchor.x, z: anchor.z))
-            context.draw(
-                Text("\(ObjectLabels.title(for: object.category))\n\(ObjectLabels.footprint(object))")
-                    .font(.caption2)
-                    .foregroundStyle(palette.ink),
-                at: screen
-            )
+            if labeled {
+                let anchor = shifted(object.center, by: layer.offset)
+                let screen = point(projector.screen(x: anchor.x, z: anchor.z))
+                context.draw(
+                    Text("\(ObjectLabels.title(for: object.category))\n\(ObjectLabels.footprint(object))")
+                        .font(.caption2)
+                        .foregroundStyle(palette.ink),
+                    at: screen
+                )
+            }
         }
         for change in changes {
             guard case .removed = change.kind else { continue }
@@ -380,6 +411,75 @@ struct FloorPlanCanvas: View {
             let color: Color = opening.kind == .window ? palette.accent : palette.door
             context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round))
         }
+    }
+
+    private func drawPreviewLabels(in context: GraphicsContext, projector: PlanProjector) {
+        struct Item {
+            var name: String
+            var room: PlanLabelFit.Span
+            var size: PlanLabelFit.LabelSize
+        }
+        var items: [Item] = []
+        for layer in layers {
+            guard !layer.plan.isEmpty, !layer.name.isEmpty else { continue }
+            guard let room = roomSpan(layer, projector: projector) else { continue }
+            let measured = context.resolve(
+                Text(layer.name).font(.caption.weight(.medium))
+            ).measure(in: CGSize(width: 2000, height: 80))
+            guard measured.width > 0, measured.height > 0 else { continue }
+            items.append(Item(
+                name: layer.name,
+                room: room,
+                size: PlanLabelFit.LabelSize(width: Double(measured.width), height: Double(measured.height))
+            ))
+        }
+        let accepted = PlanLabelFit.accepted(
+            rooms: items.map(\.room),
+            labelSizes: items.map(\.size)
+        )
+        for index in accepted {
+            let item = items[index]
+            context.draw(
+                Text(item.name)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(palette.muted),
+                at: point((
+                    x: (item.room.minX + item.room.maxX) / 2,
+                    y: (item.room.minY + item.room.maxY) / 2
+                ))
+            )
+        }
+    }
+
+    /// Walls and floor corners, in screen points. Furniture is left out so a
+    /// name is judged against the room, not the objects inside it.
+    private func roomSpan(_ layer: PlanLayer, projector: PlanProjector) -> PlanLabelFit.Span? {
+        var points: [(x: Double, y: Double)] = []
+        for floor in layer.plan.floors {
+            for corner in floor.corners {
+                let world = shifted(corner, by: layer.offset)
+                points.append(projector.screen(x: world.x, z: world.z))
+            }
+        }
+        for wall in layer.plan.walls {
+            let start = shifted(wall.start, by: layer.offset)
+            let end = shifted(wall.end, by: layer.offset)
+            points.append(projector.screen(x: start.x, z: start.z))
+            points.append(projector.screen(x: end.x, z: end.z))
+        }
+        guard let first = points.first else { return nil }
+        var minX = first.x
+        var maxX = first.x
+        var minY = first.y
+        var maxY = first.y
+        for point in points.dropFirst() {
+            minX = min(minX, point.x)
+            maxX = max(maxX, point.x)
+            minY = min(minY, point.y)
+            maxY = max(maxY, point.y)
+        }
+        guard maxX - minX > 1, maxY - minY > 1 else { return nil }
+        return PlanLabelFit.Span(minX: minX, minY: minY, maxX: maxX, maxY: maxY)
     }
 
     private func drawLabel(_ layer: PlanLayer, in context: GraphicsContext, projector: PlanProjector) {
