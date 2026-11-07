@@ -102,6 +102,74 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(world.z, 4, accuracy: 1e-6)
     }
 
+    func testRoomNameIsDroppedWhenItDoesNotFit() {
+        let wide = PlanLabelFit.Span(minX: 0, minY: 0, maxX: 120, maxY: 80)
+        let narrow = PlanLabelFit.Span(minX: 160, minY: 0, maxX: 190, maxY: 80)
+        let accepted = PlanLabelFit.accepted(
+            rooms: [wide, narrow],
+            labelSizes: [
+                PlanLabelFit.LabelSize(width: 70, height: 14),
+                PlanLabelFit.LabelSize(width: 70, height: 14)
+            ]
+        )
+        XCTAssertEqual(accepted, [0])
+    }
+
+    func testRoomNameFitsExactlyInsideTheMargin() {
+        let exact = PlanLabelFit.Span(minX: 0, minY: 0, maxX: 78, maxY: 22)
+        let tight = PlanLabelFit.Span(minX: 100, minY: 0, maxX: 177, maxY: 22)
+        let accepted = PlanLabelFit.accepted(
+            rooms: [exact, tight],
+            labelSizes: [
+                PlanLabelFit.LabelSize(width: 70, height: 14),
+                PlanLabelFit.LabelSize(width: 70, height: 14)
+            ],
+            margin: 4
+        )
+        XCTAssertEqual(accepted, [0])
+    }
+
+    func testSeparateRoomsKeepBothNames() {
+        let left = PlanLabelFit.Span(minX: 0, minY: 0, maxX: 100, maxY: 80)
+        let right = PlanLabelFit.Span(minX: 140, minY: 0, maxX: 260, maxY: 80)
+        let accepted = PlanLabelFit.accepted(
+            rooms: [left, right],
+            labelSizes: [
+                PlanLabelFit.LabelSize(width: 40, height: 14),
+                PlanLabelFit.LabelSize(width: 50, height: 14)
+            ]
+        )
+        XCTAssertEqual(accepted, [0, 1])
+    }
+
+    func testOverlappingRoomsKeepTheLargerName() {
+        let small = PlanLabelFit.Span(minX: 40, minY: 40, maxX: 120, maxY: 100)
+        let large = PlanLabelFit.Span(minX: 0, minY: 0, maxX: 200, maxY: 160)
+        let accepted = PlanLabelFit.accepted(
+            rooms: [small, large],
+            labelSizes: [
+                PlanLabelFit.LabelSize(width: 40, height: 14),
+                PlanLabelFit.LabelSize(width: 60, height: 14)
+            ]
+        )
+        XCTAssertEqual(accepted, [1])
+    }
+
+    func testTouchingLabelsNeedAGap() {
+        let left = PlanLabelFit.Span(minX: 0, minY: 0, maxX: 100, maxY: 40)
+        // Centered 40 pt labels: 30...70, then 73...113 (3 pt apart) or 74...114 (4 pt apart).
+        let right = PlanLabelFit.Span(minX: 53, minY: 0, maxX: 133, maxY: 30)
+        let sizes = [
+            PlanLabelFit.LabelSize(width: 40, height: 12),
+            PlanLabelFit.LabelSize(width: 40, height: 12)
+        ]
+        let crowded = PlanLabelFit.accepted(rooms: [left, right], labelSizes: sizes, gap: 4)
+        XCTAssertEqual(crowded, [0])
+        let cleared = PlanLabelFit.Span(minX: 54, minY: 0, maxX: 134, maxY: 30)
+        let spaced = PlanLabelFit.accepted(rooms: [left, cleared], labelSizes: sizes, gap: 4)
+        XCTAssertEqual(spaced, [0, 1])
+    }
+
     func testRelativePathStaysInsideHome() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         XCTAssertTrue(RelativePath.isSafe("rooms/kitchen.usdz"))

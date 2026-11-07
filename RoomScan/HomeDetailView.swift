@@ -42,7 +42,8 @@ struct HomeDetailView: View {
                             showPins: home.coordinatesAreUnified,
                             selectedPinID: nil,
                             placing: false,
-                            interactive: false
+                            interactive: false,
+                            markup: .preview
                         )
                         .frame(height: 180)
                         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))

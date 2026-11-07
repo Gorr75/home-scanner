@@ -185,7 +185,8 @@ private struct HomeRow: View {
                 showPins: home.coordinatesAreUnified,
                 selectedPinID: nil,
                 placing: false,
-                interactive: false
+                interactive: false,
+                markup: .structure
             )
             .frame(width: 84, height: 72)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
