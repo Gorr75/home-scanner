@@ -139,9 +139,15 @@ public enum PlateCatalog {
         room.viewpoint ?? .framed(on: room.floorPlan)
     }
 
-    public static func manifest(for room: Room, pins: [DevicePin]) -> PlateManifest {
-        let camera = viewpoint(for: room)
-        let lights = pins.filter { $0.kind == .light && ($0.roomId == nil || $0.roomId == room.id) }
+    /// `placement` moves the camera and the light positions together. Image-space
+    /// regions stay put, because the photo, the lens, and the lamps share one move.
+    public static func manifest(for room: Room, pins: [DevicePin], placement: RigidYaw = .identity) -> PlateManifest {
+        let camera = viewpoint(for: room).transformed(by: placement)
+        let lights = pins.filter { $0.kind == .light && ($0.roomId == nil || $0.roomId == room.id) }.map { pin in
+            var moved = pin
+            moved.position = placement.applying(pin.position)
+            return moved
+        }
         return PlateManifest(
             roomId: room.id,
             width: PlateLayout.width,

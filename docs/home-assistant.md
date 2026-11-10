@@ -29,7 +29,9 @@ Right-handed, Y up, meters. This is the same space as ARKit, RoomPlan, and the U
 - `yaw` is radians around Y. `0` means an opening's width, or an object's width (`dimensions.x`), runs along +X. Positive yaw turns toward +Z.
 - Wall `start` and `end` are the base of the wall centerline, not the inner face.
 
-Each LiDAR scan starts at its own origin. Pins use that room's coordinates. After **Combine into one floor**, RoomPlan's `StructureBuilder` writes an aligned shell (`structure.overview_floor_plan` and `structure.usdz`). That shell is a different coordinate space. v1 does **not** move existing pins into it, and `structure.coordinates_are_unified` stays `false` for a real combine. The sample apartment is authored as one space, so its flag is `true` and pins line up with every room.
+Each LiDAR scan starts at its own origin. Pins are stored in that room's coordinates. After **Combine into one floor**, RoomPlan's `StructureBuilder` writes an aligned shell (`structure.overview_floor_plan` and `structure.usdz`). The app then stores `structure.placements`, one rigid move (yaw and translation) per room. Drawing a pin on the shell applies that room's placement, so the pin moves with the room. `structure.coordinates_are_unified` stays `false` for a real combine, because the stored pin is still in scan space. The sample apartment is authored as one space, so its flag is `true`, it has no placements, and pins line up with every room.
+
+`structure.overlaps` lists scans whose footprints still sit on top of each other after that move. The shell hides the later duplicate until the person keeps one and deletes the other. When that happens, or when a room was snapped onto a shared wall, `structure.shell_was_rebuilt` is true and the merged USDZ is omitted because it still contains the doubled walls.
 
 ## Document
 
@@ -125,13 +127,16 @@ Present after a multi-room combine, and on the sample apartment.
 | `usdz` | Optional relative path of the merged model, usually `structure.usdz`. |
 | `captured_structure` | Optional relative path of Apple's encoded `CapturedStructure`. |
 | `overview_floor_plan` | Aligned walls and floors from `StructureBuilder`. Omit or `null` when there is no separate shell. |
+| `placements` | Optional. One entry per room: `room_id`, `yaw`, `translation`, `snapped`. Apply it to that room's scan coordinates when drawing the shell. Omit when rooms are already unified. |
+| `overlaps` | Optional. Pairs of `room_ids` whose footprints still intersect, with `kind` (`duplicate` or `unresolved`) and `ratio`. |
+| `shell_was_rebuilt` | Optional. `true` when the merged USDZ was dropped because rooms overlapped or had to be snapped. |
 
 ## What a card would draw
 
 1. Read `floor_plan` for the selected room, or `structure.overview_floor_plan` when showing the aligned shell.
 2. Draw `floors`, then `walls`, then `openings`, then `objects`, in the XZ plane.
 3. Draw each pin at `position.x`, `position.z`. Use `kind` for the icon and `entity_id` for state.
-4. Do not draw room pins on top of `overview_floor_plan` unless `coordinates_are_unified` is true.
+4. On the aligned shell, draw a pin by applying that room's `placements` entry (rotate by `yaw`, then add `translation`). If there are no placements, draw pins on the shell only when `coordinates_are_unified` is true.
 
 ## Upload
 

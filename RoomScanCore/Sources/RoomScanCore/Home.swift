@@ -191,8 +191,10 @@ extension Room: Codable {
     }
 }
 
-/// A merged multi-room result. Pins stay in each room's scan space unless
-/// `coordinatesAreUnified` is true (the bundled sample is authored that way).
+/// A merged multi-room result. Room plans stay in each scan's coordinates.
+/// `placements` is the rigid move that puts a scan, and the pins in it, on the
+/// shared floor. The sample apartment is authored already unified, so it has
+/// no placements.
 public struct StructureLink: Codable, Equatable, Sendable {
     public var builtAt: Date
     public var roomIds: [UUID]
@@ -200,6 +202,10 @@ public struct StructureLink: Codable, Equatable, Sendable {
     public var usdz: String?
     public var capturedStructure: String?
     public var overviewFloorPlan: FloorPlan?
+    public var placements: [RoomPlacement]?
+    public var overlaps: [RoomOverlap]?
+    /// The merged USDZ still contains doubled walls, so the viewer draws placed rooms instead.
+    public var shellWasRebuilt: Bool?
 
     public init(
         builtAt: Date,
@@ -207,7 +213,10 @@ public struct StructureLink: Codable, Equatable, Sendable {
         coordinatesAreUnified: Bool,
         usdz: String? = nil,
         capturedStructure: String? = nil,
-        overviewFloorPlan: FloorPlan? = nil
+        overviewFloorPlan: FloorPlan? = nil,
+        placements: [RoomPlacement]? = nil,
+        overlaps: [RoomOverlap]? = nil,
+        shellWasRebuilt: Bool? = nil
     ) {
         self.builtAt = builtAt
         self.roomIds = roomIds
@@ -215,6 +224,9 @@ public struct StructureLink: Codable, Equatable, Sendable {
         self.usdz = usdz
         self.capturedStructure = capturedStructure
         self.overviewFloorPlan = overviewFloorPlan
+        self.placements = placements
+        self.overlaps = overlaps
+        self.shellWasRebuilt = shellWasRebuilt
     }
 }
 

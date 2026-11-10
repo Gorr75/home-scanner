@@ -39,7 +39,7 @@ struct HomeDetailView: View {
                         FloorPlanCanvas(
                             layers: previewLayers(home),
                             pins: home.pins,
-                            showPins: home.coordinatesAreUnified,
+                            showPins: PlanLayers.showsDevicePins(home),
                             selectedPinID: nil,
                             placing: false,
                             interactive: false,
@@ -56,6 +56,9 @@ struct HomeDetailView: View {
                         }
                     } footer: {
                         Text(layoutCaption(home))
+                    }
+                    if !RoomAlignment.applied(to: home).overlaps.isEmpty {
+                        overlapSection(home)
                     }
                     roomSections(home)
                     Section {
@@ -236,15 +239,48 @@ struct HomeDetailView: View {
         if FloorStack.hasStackedFloors(home) {
             let level = FloorGrouping.groups(in: home.rooms).first?.level
             let rooms = home.rooms.filter { $0.floor == level }
+            let applied = RoomAlignment.applied(to: home)
+            if applied.changesDisplay {
+                return PlanLayers.aligned(rooms, applied: applied)
+            }
             return PlanLayers.rooms(rooms, unified: home.coordinatesAreUnified)
         }
-        if let overview = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
-            return PlanLayers.overview(overview, name: home.name)
+        return PlanLayers.forHome(home)
+    }
+
+    @ViewBuilder
+    private func overlapSection(_ home: Home) -> some View {
+        Section {
+            ForEach(RoomAlignment.applied(to: home).overlaps) { overlap in
+                ForEach(overlap.choices(in: home)) { choice in
+                    Button(choice.title) { keep(choice.id, in: overlap) }
+                }
+            }
+        } header: {
+            Text("Overlapping scans")
+        } footer: {
+            Text("The scan you don't keep is deleted, and the combined shell is cleared. Combine the floor again afterwards.")
         }
-        return PlanLayers.rooms(home.rooms, unified: home.coordinatesAreUnified)
+    }
+
+    private func keep(_ id: UUID, in overlap: RoomOverlap) {
+        do {
+            for roomId in overlap.roomIds where roomId != id {
+                try store.deleteRoom(homeId: homeID, roomId: roomId)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func layoutCaption(_ home: Home) -> String {
+        let applied = RoomAlignment.applied(to: home)
+        if applied.changesDisplay {
+            if !applied.overlaps.isEmpty {
+                return "One scan is hidden because it sits on top of another. Pins moved with each room."
+            }
+            return "Rooms share one floor. Pins moved with each room."
+        }
         if let _ = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return "The thumbnail is the aligned shell. Device pins stay in each room's own scan."
         }
@@ -354,12 +390,15 @@ struct HomeDetailView: View {
                 let overview = FloorPlanExtractor.floorPlan(from: structure)
                 let json = try ScanArchive.encodeStructure(structure)
                 let usdz = try ScanArchive.usdzData(for: structure)
+                let rooms = payloads.map(\.room)
+                let alignment = RoomAlignment.align(rooms: rooms, shell: overview)
                 try store.attachStructure(
                     homeId: home.id,
                     capturedJSON: json,
                     usdz: usdz,
                     overview: overview,
-                    roomIds: payloads.map(\.room.id)
+                    roomIds: rooms.map(\.id),
+                    alignment: alignment
                 )
             } catch {
                 errorMessage = "RoomPlan could not align these scans. Include the shared doorway in each room, then try again. \(error.localizedDescription)"
