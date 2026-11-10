@@ -57,32 +57,7 @@ struct HomeDetailView: View {
                     } footer: {
                         Text(layoutCaption(home))
                     }
-                    Section("Rooms") {
-                        if home.rooms.isEmpty {
-                            Text("Scan the kitchen, then the rooms that open off it.")
-                                .foregroundStyle(Theme.secondary)
-                        }
-                        ForEach(home.rooms) { room in
-                            NavigationLink(value: AppRoute.room(home: home.id, room: room.id)) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(room.name)
-                                    Text(roomCaption(room, in: home))
-                                        .font(.caption)
-                                        .foregroundStyle(Theme.secondary)
-                                }
-                            }
-                            .swipeActions {
-                                Button("Delete", role: .destructive) { pendingRoom = room }
-                            }
-                        }
-                        if LiDARSupport.canScan {
-                            Button {
-                                scanning = true
-                            } label: {
-                                Label("Scan a room", systemImage: "viewfinder")
-                            }
-                        }
-                    }
+                    roomSections(home)
                     Section {
                         if capturedCount(home) >= 2 {
                             Button {
@@ -253,10 +228,58 @@ struct HomeDetailView: View {
         return "Each scan still has its own origin. Combine them after two LiDAR passes through a shared door."
     }
 
+    @ViewBuilder
+    private func roomSections(_ home: Home) -> some View {
+        if home.rooms.isEmpty {
+            Section("Rooms") {
+                Text("Scan the kitchen, then the rooms that open off it.")
+                    .foregroundStyle(Theme.secondary)
+                scanButton
+            }
+        } else {
+            let groups = FloorGrouping.groups(in: home.rooms)
+            let plain = groups.count == 1 && groups[0].level == nil
+            ForEach(groups) { group in
+                Section(plain ? "Rooms" : FloorGrouping.label(for: group.level)) {
+                    ForEach(group.rooms) { room in
+                        NavigationLink(value: AppRoute.room(home: home.id, room: room.id)) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(room.name)
+                                Text(roomCaption(room, in: home))
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.secondary)
+                            }
+                        }
+                        .swipeActions {
+                            Button("Delete", role: .destructive) { pendingRoom = room }
+                        }
+                    }
+                    if group.id == groups.last?.id {
+                        scanButton
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var scanButton: some View {
+        if LiDARSupport.canScan {
+            Button {
+                scanning = true
+            } label: {
+                Label("Scan a room", systemImage: "viewfinder")
+            }
+        }
+    }
+
     private func roomCaption(_ room: Room, in home: Home) -> String {
         let devices = home.pins(in: room.id).count
         let deviceText = devices == 1 ? "1 device" : "\(devices) devices"
         let source = room.assets.capturedRoom == nil ? "Drawn plan" : "LiDAR scan"
+        if let floor = room.floor {
+            return "\(FloorGrouping.label(for: floor)) · \(source) · \(deviceText)"
+        }
         return "\(source) · \(deviceText)"
     }
 

@@ -31,6 +31,7 @@ struct RoomDetailView: View {
     @State private var pendingPlacements: [DevicePin] = []
     @State private var confirmAutoPlace = false
     @State private var previewHour: Double?
+    @State private var captureToken = 0
     @AppStorage(DaylightPreference.enabledKey) private var daylightEnabled = true
     @Environment(\.dismiss) private var dismiss
 
@@ -184,7 +185,10 @@ struct RoomDetailView: View {
                 onPlace: { place(at: $0, in: room) },
                 onRenderedUSDZ: { renderedUSDZ = $0 },
                 surfacePaints: TexturePaints.forRoom(room, homeId: homeID, store: store),
-                daylight: tint
+                daylight: tint,
+                savedViewpoint: room.viewpoint,
+                captureToken: captureToken,
+                onCaptureViewpoint: { saveViewpoint($0) }
             )
             .overlay(alignment: .top) {
                 if let tint {
@@ -193,8 +197,18 @@ struct RoomDetailView: View {
                         .padding(.top, 8)
                 }
             }
-            .overlay(alignment: .bottomLeading) {
-                caption(room)
+            .overlay(alignment: .bottom) {
+                HStack(alignment: .bottom) {
+                    caption(room)
+                    Spacer(minLength: 8)
+                    Button("Save viewpoint") { captureToken += 1 }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.chalk)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Theme.navy, in: Capsule())
+                        .padding(12)
+                }
             }
         }
     }
@@ -372,6 +386,12 @@ struct RoomDetailView: View {
                     renameDraft = room?.name ?? ""
                     renaming = true
                 }
+                Menu(room?.floor.map { FloorGrouping.label(for: $0) } ?? "Floor") {
+                    Button("No floor") { setFloor(nil) }
+                    ForEach(FloorGrouping.selectable, id: \.self) { level in
+                        Button(FloorGrouping.label(for: level)) { setFloor(level) }
+                    }
+                }
                 Button("Home Assistant settings") { showSettings = true }
                 Button("Send to Home Assistant") { sendToHomeAssistant() }
                     .disabled(sending)
@@ -467,6 +487,20 @@ struct RoomDetailView: View {
         mutate { home in
             guard let index = home.rooms.firstIndex(where: { $0.id == roomID }) else { return }
             home.rooms[index].name = trimmed
+        }
+    }
+
+    private func setFloor(_ level: Int?) {
+        mutate { home in
+            guard let index = home.rooms.firstIndex(where: { $0.id == roomID }) else { return }
+            home.rooms[index].floor = level
+        }
+    }
+
+    private func saveViewpoint(_ viewpoint: CameraViewpoint) {
+        mutate { home in
+            guard let index = home.rooms.firstIndex(where: { $0.id == roomID }) else { return }
+            home.rooms[index].viewpoint = viewpoint
         }
     }
 

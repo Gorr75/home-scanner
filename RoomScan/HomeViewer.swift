@@ -17,6 +17,8 @@ struct HomeViewer: View {
     @State private var errorMessage: String?
     @State private var showHeat = false
     @State private var previewHour: Double?
+    @State private var captureToken = 0
+    @State private var captureRoomID: UUID?
     @AppStorage(DaylightPreference.enabledKey) private var daylightEnabled = true
 
     private var home: Home? { store.home(id: homeID) }
@@ -137,7 +139,9 @@ struct HomeViewer: View {
                     },
                     onRenderedUSDZ: { renderedUSDZ = $0 },
                     surfacePaints: TexturePaints.forHome(home, store: store),
-                    daylight: tint
+                    daylight: tint,
+                    captureToken: captureToken,
+                    onCaptureViewpoint: { saveViewpoint($0) }
                 )
                 .overlay(alignment: .top) {
                     if let tint {
@@ -145,6 +149,9 @@ struct HomeViewer: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.top, 8)
                     }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    saveViewpointControl(home)
                 }
             }
         }
@@ -178,6 +185,45 @@ struct HomeViewer: View {
             return "USDZ model. Tap a light, switch, or fan to toggle it. Drag to orbit, pinch to zoom."
         }
         return "Built from the floor plan. Tap a light to toggle it. Drag to orbit, pinch to zoom."
+    }
+
+    @ViewBuilder
+    private func saveViewpointControl(_ home: Home) -> some View {
+        if home.rooms.count == 1, let room = home.rooms.first {
+            Button("Save viewpoint") {
+                captureRoomID = room.id
+                captureToken += 1
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Theme.chalk)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.navy, in: Capsule())
+            .padding(12)
+        } else if !home.rooms.isEmpty {
+            Menu("Save viewpoint") {
+                ForEach(home.rooms) { room in
+                    Button(room.name) {
+                        captureRoomID = room.id
+                        captureToken += 1
+                    }
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Theme.chalk)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.navy, in: Capsule())
+            .padding(12)
+        }
+    }
+
+    private func saveViewpoint(_ viewpoint: CameraViewpoint) {
+        guard let roomID = captureRoomID else { return }
+        mutate { home in
+            guard let index = home.rooms.firstIndex(where: { $0.id == roomID }) else { return }
+            home.rooms[index].viewpoint = viewpoint
+        }
     }
 
     private func selectionBar(_ pin: DevicePin) -> some View {

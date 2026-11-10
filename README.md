@@ -88,9 +88,9 @@ Coordinate notes that matter:
 
 Until Settings has a base URL and a token, pins use `MockHomeStateProvider` (kitchen light on, living room light off, a switch on, living room temperature 21.5 °C). After you connect, `HomeAssistantClient` reads and toggles entities, and the 3D view labels each pin with its state.
 
-**Send to Home Assistant** uploads `layout.json`, `model.glb`, and any RoomPlan `model.usdz` to `POST /api/home_scanner/upload/<id>`. The integration in `ha/custom_components/home_scanner/` stores them at `/config/www/home_scanner/<id>/`, which the card reads as `/local/home_scanner/<id>/layout.json` and `model.glb`. **Share a .zip** writes the same folders for AirDrop or Files. A successful upload can open `homeassistant://navigate/lovelace/home-scanner`.
+**Send to Home Assistant** uploads `layout.json`, `model.glb`, and any RoomPlan `model.usdz` to `POST /api/home_scanner/upload/<id>`. A room folder can also include photo plates under `plates/`. The integration in `ha/custom_components/home_scanner/` stores them at `/config/www/home_scanner/<id>/`, which the card reads as `/local/home_scanner/<id>/layout.json` and `model.glb`. **Share a .zip** writes the same folders for AirDrop or Files. A successful upload can open `homeassistant://navigate/lovelace/home-scanner`.
 
-The Lovelace card is [web/home-scanner-card/home-scanner-card.js](web/home-scanner-card/home-scanner-card.js). It lists rooms from the integration index and opens the plan or `model.glb`. [web/viewer/viewer.html](web/viewer/viewer.html) is the static page an existing iframe at `/local/home_scanner/viewer.html` can use.
+The Lovelace card is [web/home-scanner-card/home-scanner-card.js](web/home-scanner-card/home-scanner-card.js). It lists rooms from the integration index and opens the plan, `model.glb`, or photo plates. [web/viewer/viewer.html](web/viewer/viewer.html) is the static page an existing iframe at `/local/home_scanner/viewer.html` can use.
 
 The token is not written into the home file. Install steps are in [ha/custom_components/home_scanner/README.md](ha/custom_components/home_scanner/README.md) and [web/home-scanner-card/README.md](web/home-scanner-card/README.md). The file layout is [web/viewer/README.md](web/viewer/README.md).
 
