@@ -119,17 +119,18 @@ public struct RoomAssets: Codable, Equatable, Sendable {
     }
 }
 
-public struct Room: Codable, Equatable, Identifiable, Sendable {
+public struct Room: Equatable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
     public var createdAt: Date
     public var floorPlan: FloorPlan
     public var assets: RoomAssets
-    /// Storey index. `0` is the ground floor, positive is up, negative is below grade.
-    /// Omitted on homes saved before floors existed; those rooms read as ground level.
-    public var level: Int?
-    /// Name shared by the rooms on this storey, such as "Ground" or "Upstairs".
-    public var floorName: String?
+    /// Storey index. `0` is the ground floor, positive is up, negative is below.
+    /// Omitted from JSON when the room has not been assigned a floor.
+    public var floor: Int?
+    /// Camera saved from the 3D view, in this room's scan space.
+    /// Omitted from JSON until someone taps Save viewpoint.
+    public var viewpoint: CameraViewpoint?
     /// Picked floor finish. A scan photo still covers this when one is projected.
     public var flooring: FlooringMaterial?
     /// Catalog items placed in this room. Nil when the room has none, so older files stay unchanged.
@@ -141,8 +142,8 @@ public struct Room: Codable, Equatable, Identifiable, Sendable {
         createdAt: Date,
         floorPlan: FloorPlan,
         assets: RoomAssets = RoomAssets(),
-        level: Int? = nil,
-        floorName: String? = nil,
+        floor: Int? = nil,
+        viewpoint: CameraViewpoint? = nil,
         flooring: FlooringMaterial? = nil,
         furniture: [PlacedFurniture]? = nil
     ) {
@@ -151,10 +152,42 @@ public struct Room: Codable, Equatable, Identifiable, Sendable {
         self.createdAt = createdAt
         self.floorPlan = floorPlan
         self.assets = assets
-        self.level = level
-        self.floorName = floorName
+        self.floor = floor
+        self.viewpoint = viewpoint
         self.flooring = flooring
         self.furniture = furniture
+    }
+}
+
+extension Room: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, name, createdAt, floorPlan, assets, floor, viewpoint, flooring, furniture
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        floorPlan = try container.decode(FloorPlan.self, forKey: .floorPlan)
+        assets = try container.decodeIfPresent(RoomAssets.self, forKey: .assets) ?? RoomAssets()
+        floor = try container.decodeIfPresent(Int.self, forKey: .floor)
+        viewpoint = try container.decodeIfPresent(CameraViewpoint.self, forKey: .viewpoint)
+        flooring = try container.decodeIfPresent(FlooringMaterial.self, forKey: .flooring)
+        furniture = try container.decodeIfPresent([PlacedFurniture].self, forKey: .furniture)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(floorPlan, forKey: .floorPlan)
+        try container.encode(assets, forKey: .assets)
+        try container.encodeIfPresent(floor, forKey: .floor)
+        try container.encodeIfPresent(viewpoint, forKey: .viewpoint)
+        try container.encodeIfPresent(flooring, forKey: .flooring)
+        try container.encodeIfPresent(furniture, forKey: .furniture)
     }
 }
 

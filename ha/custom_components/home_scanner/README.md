@@ -22,7 +22,7 @@ A successful upload fires `home_scanner_layout_updated` with `room`, `path`, and
 The iPhone calls:
 
 - `GET /api/home_scanner/health` with `Authorization: Bearer <long-lived token>`
-- `POST /api/home_scanner/upload/<id>` as multipart form data. Parts are named `file` and the filenames are `layout.json`, `model.glb`, and optionally `model.usdz`.
+- `POST /api/home_scanner/upload/<id>` as multipart form data. Parts are named `file`. The filenames are `layout.json`, `model.glb`, optionally `model.usdz`, and optionally photo plates: `plates/manifest.json`, `plates/day/base.jpg`, `plates/night/base.jpg`, and `plates/<day|night>/<pin-uuid>.png`. `layout.json` is still required. An upload without plates is unchanged.
 
 ## Install
 

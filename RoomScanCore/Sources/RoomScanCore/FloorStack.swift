@@ -66,54 +66,24 @@ public enum FlooringMaterial: String, Codable, CaseIterable, Sendable {
     public var rgba: [Double] { [red, green, blue, 1] }
 }
 
-public struct FloorSummary: Equatable, Identifiable, Sendable {
-    public var level: Int
-    public var name: String
-    public var roomIDs: [UUID]
-
-    public var id: Int { level }
-}
-
 public enum FloorStack {
     /// Clear height between the floor of one storey and the floor of the next, in meters.
     public static let storyHeight = 3.0
 
-    public static func elevation(for level: Int) -> Double {
-        Double(level) * storyHeight
+    public static func elevation(for floor: Int) -> Double {
+        Double(floor) * storyHeight
     }
 
-    public static func defaultName(for level: Int) -> String {
-        switch level {
-        case 0: return "Ground"
-        case 1: return "Upstairs"
-        case -1: return "Basement"
-        default:
-            if level > 1 { return "Floor \(level)" }
-            return "Basement \(abs(level))"
-        }
-    }
-
-    public static func summaries(in home: Home) -> [FloorSummary] {
-        let grouped = Dictionary(grouping: home.rooms, by: \.resolvedLevel)
-        return grouped.keys.sorted().map { level in
-            let rooms = grouped[level] ?? []
-            let name = rooms.map(\.resolvedFloorName).first { $0 != defaultName(for: level) }
-                ?? rooms.first?.resolvedFloorName
-                ?? defaultName(for: level)
-            return FloorSummary(level: level, name: name, roomIDs: rooms.map(\.id))
-        }
-    }
-
-    public static func hasMultipleLevels(_ home: Home) -> Bool {
-        Set(home.rooms.map(\.resolvedLevel)).count > 1
+    /// True when at least two different `floor` indexes are set. Unassigned rooms are not a storey.
+    public static func hasStackedFloors(_ home: Home) -> Bool {
+        Set(home.rooms.compactMap(\.floor)).count > 1
     }
 
     /// Structural copy of a storey: walls, openings, and floor polygons, with new ids.
     /// Scan objects, catalog furniture, and device pins stay on the floor they were placed.
     public static func copiedRooms(
         from rooms: [Room],
-        level: Int,
-        floorName: String,
+        floor: Int,
         createdAt: Date,
         makeID: () -> UUID
     ) -> [Room] {
@@ -139,8 +109,7 @@ public enum FloorStack {
                         return copy
                     }
                 ),
-                level: level,
-                floorName: floorName,
+                floor: floor,
                 flooring: room.flooring
             )
         }
@@ -150,8 +119,7 @@ public enum FloorStack {
     public static func footprintRoom(
         from rooms: [Room],
         unified: Bool,
-        level: Int,
-        floorName: String,
+        floor: Int,
         createdAt: Date,
         makeID: () -> UUID
     ) -> Room? {
@@ -198,21 +166,20 @@ public enum FloorStack {
         }
         return Room(
             id: makeID(),
-            name: floorName,
+            name: FloorGrouping.label(for: floor),
             createdAt: createdAt,
             floorPlan: FloorPlan(
                 walls: walls,
                 floors: [FloorPolygon(id: makeID(), corners: corners)]
             ),
-            level: level,
-            floorName: floorName
+            floor: floor
         )
     }
 }
 
 public enum HomeFurnishing {
     public static func needsExport(_ home: Home) -> Bool {
-        FloorStack.hasMultipleLevels(home) || home.rooms.contains { needsExport($0) }
+        FloorStack.hasStackedFloors(home) || home.rooms.contains { needsExport($0) }
     }
 
     public static func needsExport(_ room: Room) -> Bool {
@@ -226,10 +193,10 @@ public enum HomeFurnishing {
         )
         return home.rooms.map { room in
             var offset = frames.first { $0.roomId == room.id }?.offset ?? .zero
-            if stacked {
+            if stacked, let floor = room.floor {
                 offset = Vec3(
                     x: offset.x,
-                    y: offset.y + FloorStack.elevation(for: room.resolvedLevel),
+                    y: offset.y + FloorStack.elevation(for: floor),
                     z: offset.z
                 )
             }

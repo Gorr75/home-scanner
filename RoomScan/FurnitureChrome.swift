@@ -2,34 +2,33 @@ import SwiftUI
 import RoomScanCore
 
 struct FloorTabBar: View {
-    var floors: [FloorSummary]
-    var selection: Int
-    var onSelect: (Int) -> Void
+    var groups: [FloorGroup]
+    /// The storey being edited. Nil is the unassigned group, and only applies when `choosesUnassigned` is true.
+    var selection: Int?
+    var choosesUnassigned: Bool
+    var onSelect: (Int?) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(floors) { floor in
+                ForEach(groups) { group in
+                    let selected = choosesUnassigned ? group.level == nil : group.level == selection
                     Button {
-                        onSelect(floor.level)
+                        onSelect(group.level)
                     } label: {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(floor.name)
-                                .font(.subheadline.weight(.semibold))
-                            Text("Level \(floor.level)")
-                                .font(.caption2)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            floor.level == selection ? Theme.navy : Theme.navy.opacity(0.35),
-                            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        )
-                        .foregroundStyle(Theme.chalk)
+                        Text(FloorGrouping.label(for: group.level))
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                selected ? Theme.navy : Theme.navy.opacity(0.35),
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            )
+                            .foregroundStyle(Theme.chalk)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("\(floor.name), level \(floor.level)")
-                    .accessibilityAddTraits(floor.level == selection ? .isSelected : [])
+                    .accessibilityLabel(FloorGrouping.label(for: group.level))
+                    .accessibilityAddTraits(selected ? .isSelected : [])
                 }
             }
             .padding(.horizontal, 16)

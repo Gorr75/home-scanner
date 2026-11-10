@@ -2,12 +2,13 @@
 
 The card lists rooms uploaded by the iPhone app and opens the floor plan or `model.glb` for the one you pick. It does not replace `viewer.html`. An existing iframe dashboard can keep using that file.
 
-Each upload is still:
+Each upload is still the same contract, plus optional photo plates:
 
 ```text
 /local/home_scanner/<slug>/layout.json
 /local/home_scanner/<slug>/model.glb
 /local/home_scanner/<slug>/model.usdz    # optional
+/local/home_scanner/<slug>/plates/       # optional day and night plates
 ```
 
 `<slug>` is the home UUID or the room UUID. Prefer a room slug when the pins should sit on that room's model. `layout.json` is a `roomscan.home` version 1 document and never contains a token.
@@ -86,7 +87,26 @@ rooms:
 
 `slug: YOUR-ROOM-UUID` on its own is the one-room form.
 
-Plan is drawn from `layout.json` (floors, walls, pins). 3D loads `model.glb`. Tap a light, switch, or fan pin to toggle it through the dashboard session. The long-lived token stays on the iPhone. Do not put it in the card config.
+Plan is drawn from `layout.json` (floors, walls, pins). 3D loads `model.glb`. Photo composites plates from `plates/manifest.json` instead of loading the model: a lights-off base, then one plate per light with `mix-blend-mode: screen`. Opacity follows brightness and the colour follows the light's colour. Tap a light region, or a plan pin, to toggle it through the dashboard session. The long-lived token stays on the iPhone. Do not put it in the card config.
+
+`view: plan`, `view: model`, or `view: photo` picks the tab a wall tablet opens on. The default is the plan.
+
+When a room has `floor` in the layout, the card shows a floor picker. A multi-room layout also lists the rooms on that floor and aims the 3D camera at the room's `viewpoint` (`camera-orbit` and `camera-target`). Photo mode for a whole-home folder loads plates from that room's own folder, `/local/home_scanner/<room-id>/plates/`. A one-room folder uses the plates uploaded beside its layout. Day and night plates follow `sun.sun` with the same mapping as the 3D tint: the night phase uses the night set, and sunrise, sunset, and day use the day set.
+
+A room list in the card config can set `floor` too, which groups those folders:
+
+```yaml
+type: custom:home-scanner-card
+title: Home
+view: photo
+rooms:
+  - slug: KITCHEN-UUID
+    name: Kitchen
+    floor: 0
+  - slug: LOFT-UUID
+    name: Loft
+    floor: 1
+```
 
 The plan and the model take a daylight tint from `sun.sun` (elevation, then next rising and setting, then above or below the horizon). If that entity is missing, the card uses this device's clock, with sunrise at 06:00 and sunset at 18:00. Light pins keep the colour Home Assistant reports, so a lamp still reads when the room is dim.
 

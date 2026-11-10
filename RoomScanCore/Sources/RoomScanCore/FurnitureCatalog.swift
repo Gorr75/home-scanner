@@ -648,17 +648,6 @@ extension Room {
         set { furniture = newValue.isEmpty ? nil : newValue }
     }
 
-    /// Missing `level` is the ground floor, so a home saved before floors still reads as one storey.
-    public var resolvedLevel: Int { level ?? 0 }
-
-    public var resolvedFloorName: String {
-        if let floorName {
-            let trimmed = floorName.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
-        return FloorStack.defaultName(for: resolvedLevel)
-    }
-
     public var replacedObjectIDs: Set<UUID> {
         Set(placedFurniture.compactMap(\.replacesObjectId))
     }
@@ -738,24 +727,22 @@ extension Home {
         rooms[index].flooring = material
     }
 
-    /// Writes the same name onto every room of that storey, and records the level so the name sticks.
-    public mutating func renameFloor(level: Int, to name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        for index in rooms.indices where rooms[index].resolvedLevel == level {
-            rooms[index].level = level
-            rooms[index].floorName = trimmed
-        }
-    }
-
+    /// Copies the highest numbered storey onto the next `floor` index.
+    /// When no room has a floor yet, the existing rooms become floor 0 and the copy is floor 1,
+    /// which is the same optional integer the card already groups on.
     @discardableResult
     public mutating func addCopiedFloor(now: Date = Date(), makeID: () -> UUID = { UUID() }) -> [Room] {
-        guard let source = rooms.map(\.resolvedLevel).max() else { return [] }
-        let level = source + 1
+        guard !rooms.isEmpty else { return [] }
+        let sourceFloor = rooms.compactMap(\.floor).max()
+        if sourceFloor == nil {
+            for index in rooms.indices {
+                rooms[index].floor = 0
+            }
+        }
+        let source = sourceFloor ?? 0
         let copies = FloorStack.copiedRooms(
-            from: rooms.filter { $0.resolvedLevel == source },
-            level: level,
-            floorName: FloorStack.defaultName(for: level),
+            from: rooms.filter { $0.floor == source },
+            floor: source + 1,
             createdAt: now,
             makeID: makeID
         )
@@ -766,14 +753,18 @@ extension Home {
 
     @discardableResult
     public mutating func addFootprintFloor(now: Date = Date(), makeID: () -> UUID = { UUID() }) -> Room? {
-        guard let source = rooms.map(\.resolvedLevel).max() else { return nil }
-        let level = source + 1
-        let floorName = FloorStack.defaultName(for: level)
+        guard !rooms.isEmpty else { return nil }
+        let sourceFloor = rooms.compactMap(\.floor).max()
+        if sourceFloor == nil {
+            for index in rooms.indices {
+                rooms[index].floor = 0
+            }
+        }
+        let source = sourceFloor ?? 0
         guard let room = FloorStack.footprintRoom(
-            from: rooms.filter { $0.resolvedLevel == source },
+            from: rooms.filter { $0.floor == source },
             unified: coordinatesAreUnified,
-            level: level,
-            floorName: floorName,
+            floor: source + 1,
             createdAt: now,
             makeID: makeID
         ) else { return nil }

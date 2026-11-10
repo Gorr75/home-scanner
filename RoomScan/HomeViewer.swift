@@ -17,12 +17,15 @@ struct HomeViewer: View {
     @State private var errorMessage: String?
     @State private var showHeat = false
     @State private var previewHour: Double?
-    @State private var selectedLevel: Int?
+    @State private var selectedFloor: Int?
+    @State private var didPickFloor = false
     @State private var dollhouse = false
     @State private var placingFurniture = false
     @State private var catalogItemID: String?
     @State private var showCatalog = false
     @State private var selectedFurnitureID: UUID?
+    @State private var captureToken = 0
+    @State private var captureRoomID: UUID?
     @AppStorage(DaylightPreference.enabledKey) private var daylightEnabled = true
 
     private var home: Home? { store.home(id: homeID) }
@@ -31,11 +34,17 @@ struct HomeViewer: View {
         CharcoalScreen {
             if let home {
                 VStack(spacing: 0) {
-                    if FloorStack.hasMultipleLevels(home), let level = selectedLevel ?? FloorStack.summaries(in: home).first?.level {
-                        FloorTabBar(floors: FloorStack.summaries(in: home), selection: level) { picked in
-                            selectedLevel = picked
-                            dollhouse = false
-                        }
+                    if FloorGrouping.groups(in: home.rooms).count > 1 {
+                        FloorTabBar(
+                            groups: FloorGrouping.groups(in: home.rooms),
+                            selection: activeGroup(home)?.level,
+                            choosesUnassigned: activeGroup(home)?.level == nil,
+                            onSelect: { picked in
+                                selectedFloor = picked
+                                didPickFloor = true
+                                dollhouse = false
+                            }
+                        )
                     }
                     viewer(home)
                     if let selectedFurnitureID, let furniture = home.furnitureItem(id: selectedFurnitureID)?.item {
@@ -219,7 +228,9 @@ struct HomeViewer: View {
                     },
                     onPlaceFurniture: { point in
                         placeFurniture(x: point.x, y: point.y, z: point.z, in: home)
-                    }
+                    },
+                    captureToken: captureToken,
+                    onCaptureViewpoint: { saveViewpoint($0) }
                 )
                 .overlay(alignment: .top) {
                     if let tint {
@@ -228,31 +239,36 @@ struct HomeViewer: View {
                             .padding(.top, 8)
                     }
                 }
+                .overlay(alignment: .bottomTrailing) {
+                    saveViewpointControl(home)
+                }
             }
         }
     }
 
-    private func activeLevel(_ home: Home) -> Int {
-        let floors = FloorStack.summaries(in: home)
-        if let selectedLevel, floors.contains(where: { $0.level == selectedLevel }) {
-            return selectedLevel
+    private func activeGroup(_ home: Home) -> FloorGroup? {
+        let groups = FloorGrouping.groups(in: home.rooms)
+        if didPickFloor, let match = groups.first(where: { $0.level == selectedFloor }) {
+            return match
         }
-        return floors.first?.level ?? 0
+        return groups.first
     }
 
     private func editingRooms(_ home: Home) -> [Room] {
-        if dollhouse && !showsPlan { return home.rooms }
-        guard FloorStack.hasMultipleLevels(home) else { return home.rooms }
-        let level = activeLevel(home)
-        return home.rooms.filter { $0.resolvedLevel == level }
+        if dollhouse && !showsPlan {
+            let numbered = home.rooms.filter { $0.floor != nil }
+            return numbered.isEmpty ? home.rooms : numbered
+        }
+        guard FloorGrouping.groups(in: home.rooms).count > 1 else { return home.rooms }
+        return activeGroup(home)?.rooms ?? home.rooms
     }
 
     private func layers(_ home: Home) -> [PlanLayer] {
         let rooms = editingRooms(home)
         if dollhouse && !showsPlan {
-            return PlanLayers.rooms(home.rooms, unified: home.coordinatesAreUnified, stacked: true)
+            return PlanLayers.rooms(rooms, unified: home.coordinatesAreUnified, stacked: true)
         }
-        if FloorStack.hasMultipleLevels(home) || home.rooms.contains(where: { !$0.placedFurniture.isEmpty || $0.flooring != nil }) {
+        if FloorStack.hasStackedFloors(home) || home.rooms.contains(where: { !$0.placedFurniture.isEmpty || $0.flooring != nil }) {
             return PlanLayers.rooms(rooms, unified: home.coordinatesAreUnified)
         }
         if let overview = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
@@ -262,9 +278,8 @@ struct HomeViewer: View {
     }
 
     private func ghostLayers(_ home: Home) -> [PlanLayer] {
-        guard showsPlan, FloorStack.hasMultipleLevels(home) else { return [] }
-        let below = activeLevel(home) - 1
-        let rooms = home.rooms.filter { $0.resolvedLevel == below }
+        guard showsPlan, let level = activeGroup(home)?.level else { return [] }
+        let rooms = home.rooms.filter { $0.floor == level - 1 }
         guard !rooms.isEmpty else { return [] }
         return PlanLayers.ghost(rooms, unified: home.coordinatesAreUnified)
     }
@@ -274,7 +289,7 @@ struct HomeViewer: View {
     }
 
     private func showsPins(_ home: Home) -> Bool {
-        if FloorStack.hasMultipleLevels(home) || dollhouse { return true }
+        if FloorStack.hasStackedFloors(home) || dollhouse { return true }
         return home.coordinatesAreUnified
     }
 
@@ -288,9 +303,8 @@ struct HomeViewer: View {
         if dollhouse && !showsPlan {
             return "Dollhouse. Walls fade as you move closer. Drag a catalog item to move it."
         }
-        if FloorStack.hasMultipleLevels(home) && showsPlan {
-            let name = FloorStack.summaries(in: home).first { $0.level == activeLevel(home) }?.name ?? "This floor"
-            return "\(name). The floor below is a faint ghost, so stairs and shafts stay aligned."
+        if showsPlan, let group = activeGroup(home), FloorGrouping.groups(in: home.rooms).count > 1 {
+            return "\(FloorGrouping.label(for: group.level)). The floor below is a faint ghost when that storey exists, so stairs and shafts stay aligned."
         }
         if showsPlan {
             if showHeat {
@@ -302,6 +316,45 @@ struct HomeViewer: View {
             return "USDZ model. Tap a light, switch, or fan to toggle it. Drag to orbit, pinch to zoom."
         }
         return "Built from the floor plan. Tap a light to toggle it. Drag to orbit, pinch to zoom."
+    }
+
+    @ViewBuilder
+    private func saveViewpointControl(_ home: Home) -> some View {
+        if home.rooms.count == 1, let room = home.rooms.first {
+            Button("Save viewpoint") {
+                captureRoomID = room.id
+                captureToken += 1
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Theme.chalk)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.navy, in: Capsule())
+            .padding(12)
+        } else if !home.rooms.isEmpty {
+            Menu("Save viewpoint") {
+                ForEach(home.rooms) { room in
+                    Button(room.name) {
+                        captureRoomID = room.id
+                        captureToken += 1
+                    }
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Theme.chalk)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.navy, in: Capsule())
+            .padding(12)
+        }
+    }
+
+    private func saveViewpoint(_ viewpoint: CameraViewpoint) {
+        guard let roomID = captureRoomID else { return }
+        mutate { home in
+            guard let index = home.rooms.firstIndex(where: { $0.id == roomID }) else { return }
+            home.rooms[index].viewpoint = viewpoint
+        }
     }
 
     private func selectionBar(_ pin: DevicePin) -> some View {
@@ -357,14 +410,16 @@ struct HomeViewer: View {
     private func addCopiedFloor() {
         mutate { home in
             let copies = home.addCopiedFloor()
-            selectedLevel = copies.first?.level
+            selectedFloor = copies.first?.floor
+            didPickFloor = selectedFloor != nil
         }
     }
 
     private func addFootprintFloor() {
         mutate { home in
             if let room = home.addFootprintFloor() {
-                selectedLevel = room.level
+                selectedFloor = room.floor
+                didPickFloor = true
             }
         }
     }

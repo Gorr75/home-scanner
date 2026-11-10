@@ -34,6 +34,11 @@ struct RoomModelView: UIViewRepresentable {
     var onSelectFurniture: (UUID?) -> Void = { _ in }
     var onMoveFurniture: (UUID, Vec3) -> Void = { _, _ in }
     var onPlaceFurniture: (Vec3) -> Void = { _ in }
+    /// When set, the room opens on this camera instead of the default framing.
+    var savedViewpoint: CameraViewpoint? = nil
+    /// Increment to read the current camera into `onCaptureViewpoint`.
+    var captureToken: Int = 0
+    var onCaptureViewpoint: ((CameraViewpoint) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -87,8 +92,9 @@ struct RoomModelView: UIViewRepresentable {
             context.coordinator.signature = signature
             context.coordinator.urlKey = urlKey
             context.coordinator.renderedUSDZ = usedUSDZ
-            frameCamera(in: view, scene: scene)
+            applyOpeningCamera(in: view, scene: scene)
             context.coordinator.cameraToken = cameraToken
+            context.coordinator.appliedViewpoint = savedViewpoint
             let rendered = usedUSDZ
             let report = onRenderedUSDZ
             DispatchQueue.main.async {
@@ -97,6 +103,22 @@ struct RoomModelView: UIViewRepresentable {
         } else if context.coordinator.cameraToken != cameraToken, let scene = view.scene {
             frameCamera(in: view, scene: scene)
             context.coordinator.cameraToken = cameraToken
+            context.coordinator.appliedViewpoint = savedViewpoint
+        } else if savedViewpoint != context.coordinator.appliedViewpoint, let scene = view.scene {
+            if let savedViewpoint {
+                placeCamera(savedViewpoint, in: view, scene: scene)
+            }
+            context.coordinator.appliedViewpoint = savedViewpoint
+        }
+        if captureToken != context.coordinator.lastCaptureToken {
+            context.coordinator.lastCaptureToken = captureToken
+            if captureToken > 0, let node = view.pointOfView {
+                let viewpoint = capturedViewpoint(from: node)
+                let report = onCaptureViewpoint
+                DispatchQueue.main.async {
+                    report?(viewpoint)
+                }
+            }
         }
         if let scene = view.scene {
             applyLighting(to: scene, in: view)
@@ -430,25 +452,75 @@ struct RoomModelView: UIViewRepresentable {
         }
     }
 
+    private func applyOpeningCamera(in view: SCNView, scene: SCNScene) {
+        if let savedViewpoint {
+            placeCamera(savedViewpoint, in: view, scene: scene)
+        } else {
+            frameCamera(in: view, scene: scene)
+        }
+    }
+
     private func frameCamera(in view: SCNView, scene: SCNScene) {
-        scene.rootNode.childNode(withName: "camera", recursively: false)?.removeFromParentNode()
         let box = PlanLayers.bounds(of: layers)
+        let center = box.center
+        let span = max(box.size.x, box.size.z, 1.6)
+        let viewpoint = CameraViewpoint(
+            position: Vec3(
+                x: center.x + span * 0.1,
+                y: max(box.max.y, 1.2) + span * 0.7,
+                z: center.z + span * 1.05
+            ),
+            target: Vec3(
+                x: center.x,
+                y: min(max(center.y, 0.4), 1.4),
+                z: center.z
+            ),
+            fieldOfView: 48
+        )
+        placeCamera(viewpoint, in: view, scene: scene)
+    }
+
+    private func placeCamera(_ viewpoint: CameraViewpoint, in view: SCNView, scene: SCNScene) {
+        let cameraNode = makeCamera(in: scene, fieldOfView: viewpoint.fieldOfView)
+        cameraNode.position = SCNVector3(
+            Float(viewpoint.position.x),
+            Float(viewpoint.position.y),
+            Float(viewpoint.position.z)
+        )
+        cameraNode.look(at: SCNVector3(
+            Float(viewpoint.target.x),
+            Float(viewpoint.target.y),
+            Float(viewpoint.target.z)
+        ))
+        view.pointOfView = cameraNode
+    }
+
+    private func makeCamera(in scene: SCNScene, fieldOfView: Double) -> SCNNode {
+        scene.rootNode.childNode(withName: "camera", recursively: false)?.removeFromParentNode()
         let cameraNode = SCNNode()
         cameraNode.name = "camera"
         let camera = SCNCamera()
-        camera.fieldOfView = 48
+        camera.fieldOfView = CGFloat(fieldOfView)
         camera.automaticallyAdjustsZRange = true
         cameraNode.camera = camera
-        let center = box.center
-        let span = max(box.size.x, box.size.z, 1.6)
-        cameraNode.position = SCNVector3(
-            Float(center.x + span * 0.1),
-            Float(max(box.max.y, 1.2) + span * 0.7),
-            Float(center.z + span * 1.05)
-        )
-        cameraNode.look(at: SCNVector3(Float(center.x), Float(min(max(center.y, 0.4), 1.4)), Float(center.z)))
         scene.rootNode.addChildNode(cameraNode)
-        view.pointOfView = cameraNode
+        return cameraNode
+    }
+
+    /// Position from the world matrix, and a target 2.5 m along the camera's look axis.
+    private func capturedViewpoint(from node: SCNNode) -> CameraViewpoint {
+        let transform = node.worldTransform
+        let position = Vec3(x: Double(transform.m41), y: Double(transform.m42), z: Double(transform.m43))
+        let fx = -Double(transform.m31)
+        let fy = -Double(transform.m32)
+        let fz = -Double(transform.m33)
+        let length = (fx * fx + fy * fy + fz * fz).squareRoot()
+        let scale = length > 1e-6 ? 2.5 / length : 2.5
+        return CameraViewpoint(
+            position: position,
+            target: Vec3(x: position.x + fx * scale, y: position.y + fy * scale, z: position.z + fz * scale),
+            fieldOfView: Double(node.camera?.fieldOfView ?? 48)
+        )
     }
 
     private var lighting: DaylightTint { daylight ?? .studio }
@@ -544,6 +616,8 @@ struct RoomModelView: UIViewRepresentable {
         var signature: [PlanLayer] = []
         var urlKey: String?
         var cameraToken = -1
+        var appliedViewpoint: CameraViewpoint?
+        var lastCaptureToken = 0
         var renderedUSDZ = false
         var furniturePan: UIPanGestureRecognizer?
         private var draggingFurniture: UUID?

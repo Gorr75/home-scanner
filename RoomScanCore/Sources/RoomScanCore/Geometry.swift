@@ -232,13 +232,22 @@ public enum FloorPlanLayout {
         coordinatesAreUnified: Bool,
         gap: Double = 0.8
     ) -> [RoomFrame] {
-        let levels = Set(rooms.map(\.resolvedLevel))
-        if levels.count <= 1 {
+        let floors = Set(rooms.map(\.floor))
+        if floors.count <= 1 {
             return row(rooms, coordinatesAreUnified: coordinatesAreUnified, gap: gap)
         }
         // Each storey is laid out on its own, so a copied floor sits on the one below.
-        return levels.sorted().flatMap { level in
-            row(rooms.filter { $0.resolvedLevel == level }, coordinatesAreUnified: coordinatesAreUnified, gap: gap)
+        // Unassigned rooms stay in their own group and are not treated as floor 0.
+        let ordered = floors.sorted { lhs, rhs in
+            switch (lhs, rhs) {
+            case let (left?, right?): return left < right
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return false
+            }
+        }
+        return ordered.flatMap { floor in
+            row(rooms.filter { $0.floor == floor }, coordinatesAreUnified: coordinatesAreUnified, gap: gap)
         }
     }
 

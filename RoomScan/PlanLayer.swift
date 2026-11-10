@@ -17,8 +17,8 @@ enum PlanLayers {
         let frames = FloorPlanLayout.frames(rooms: rooms, coordinatesAreUnified: unified)
         return rooms.enumerated().map { index, room in
             var offset = frames.first { $0.roomId == room.id }?.offset ?? .zero
-            if stacked {
-                offset = Vec3(x: offset.x, y: FloorStack.elevation(for: room.resolvedLevel), z: offset.z)
+            if stacked, let floor = room.floor {
+                offset = Vec3(x: offset.x, y: FloorStack.elevation(for: floor), z: offset.z)
             }
             return PlanLayer(
                 id: room.id,

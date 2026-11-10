@@ -21,8 +21,6 @@ struct HomeDetailView: View {
     @State private var uploadedMessage = ""
     @State private var pendingPlacements: [DevicePin] = []
     @State private var confirmAutoPlace = false
-    @State private var renamingFloorLevel: Int?
-    @State private var floorNameDraft = ""
 
     private var home: Home? { store.home(id: homeID) }
 
@@ -59,52 +57,12 @@ struct HomeDetailView: View {
                     } footer: {
                         Text(layoutCaption(home))
                     }
-                    Section("Rooms") {
-                        if home.rooms.isEmpty {
-                            Text("Scan the kitchen, then the rooms that open off it.")
-                                .foregroundStyle(Theme.secondary)
-                        }
-                        ForEach(home.rooms) { room in
-                            NavigationLink(value: AppRoute.room(home: home.id, room: room.id)) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(room.name)
-                                    Text(roomCaption(room, in: home))
-                                        .font(.caption)
-                                        .foregroundStyle(Theme.secondary)
-                                }
-                            }
-                            .swipeActions {
-                                Button("Delete", role: .destructive) { pendingRoom = room }
-                            }
-                        }
-                        if LiDARSupport.canScan {
-                            Button {
-                                scanning = true
-                            } label: {
-                                Label("Scan a room", systemImage: "viewfinder")
-                            }
-                        }
-                    }
+                    roomSections(home)
                     Section {
                         if home.rooms.isEmpty {
                             Text("Scan a room, then stack another floor on top of it.")
                                 .foregroundStyle(Theme.secondary)
                         } else {
-                            ForEach(FloorStack.summaries(in: home)) { floor in
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(floor.name)
-                                    Text("Level \(floor.level) · \(floor.roomIDs.count) \(floor.roomIDs.count == 1 ? "room" : "rooms")")
-                                        .font(.caption)
-                                        .foregroundStyle(Theme.secondary)
-                                }
-                                .swipeActions {
-                                    Button("Rename") {
-                                        floorNameDraft = floor.name
-                                        renamingFloorLevel = floor.level
-                                    }
-                                    .tint(Theme.accent)
-                                }
-                            }
                             Button {
                                 mutate { _ = $0.addCopiedFloor() }
                             } label: {
@@ -117,9 +75,9 @@ struct HomeDetailView: View {
                             }
                         }
                     } header: {
-                        Text("Floors")
+                        Text("Another floor")
                     } footer: {
-                        Text("A copied floor keeps the walls so the next storey lines up. One room uses that floor’s footprint. Open the 3D model and choose Dollhouse to see them stacked.")
+                        Text("Uses the same floor number the card reads. A copied floor keeps the walls so the next storey lines up. One room uses that floor’s footprint. Open the 3D model and choose Dollhouse to see them stacked.")
                     }
                     Section {
                         if capturedCount(home) >= 2 {
@@ -233,19 +191,6 @@ struct HomeDetailView: View {
         } message: {
             Text(DeviceAutoPlace.confirmDetail)
         }
-        .alert("Rename floor", isPresented: Binding(
-            get: { renamingFloorLevel != nil },
-            set: { if !$0 { renamingFloorLevel = nil } }
-        )) {
-            TextField("Name", text: $floorNameDraft)
-            Button("Save") {
-                if let level = renamingFloorLevel {
-                    mutate { $0.renameFloor(level: level, to: floorNameDraft) }
-                }
-                renamingFloorLevel = nil
-            }
-            Button("Cancel", role: .cancel) { renamingFloorLevel = nil }
-        }
         .alert("Sent to Home Assistant", isPresented: $showUploaded) {
             Button("Open Home Assistant") { openCompanion() }
             Button("OK", role: .cancel) {}
@@ -288,9 +233,9 @@ struct HomeDetailView: View {
     }
 
     private func previewLayers(_ home: Home) -> [PlanLayer] {
-        if FloorStack.hasMultipleLevels(home) {
-            let level = FloorStack.summaries(in: home).first?.level ?? 0
-            let rooms = home.rooms.filter { $0.resolvedLevel == level }
+        if FloorStack.hasStackedFloors(home) {
+            let level = FloorGrouping.groups(in: home.rooms).first?.level
+            let rooms = home.rooms.filter { $0.floor == level }
             return PlanLayers.rooms(rooms, unified: home.coordinatesAreUnified)
         }
         if let overview = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
@@ -303,8 +248,8 @@ struct HomeDetailView: View {
         if let _ = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return "The thumbnail is the aligned shell. Device pins stay in each room's own scan."
         }
-        if FloorStack.hasMultipleLevels(home) {
-            let count = FloorStack.summaries(in: home).count
+        if FloorStack.hasStackedFloors(home) {
+            let count = Set(home.rooms.compactMap(\.floor)).count
             return "\(count) floors. The thumbnail is the lowest one. The 3D model can show the dollhouse."
         }
         if home.coordinatesAreUnified {
@@ -313,13 +258,56 @@ struct HomeDetailView: View {
         return "Each scan still has its own origin. Combine them after two LiDAR passes through a shared door."
     }
 
+    @ViewBuilder
+    private func roomSections(_ home: Home) -> some View {
+        if home.rooms.isEmpty {
+            Section("Rooms") {
+                Text("Scan the kitchen, then the rooms that open off it.")
+                    .foregroundStyle(Theme.secondary)
+                scanButton
+            }
+        } else {
+            let groups = FloorGrouping.groups(in: home.rooms)
+            let plain = groups.count == 1 && groups[0].level == nil
+            ForEach(groups) { group in
+                Section(plain ? "Rooms" : FloorGrouping.label(for: group.level)) {
+                    ForEach(group.rooms) { room in
+                        NavigationLink(value: AppRoute.room(home: home.id, room: room.id)) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(room.name)
+                                Text(roomCaption(room, in: home))
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.secondary)
+                            }
+                        }
+                        .swipeActions {
+                            Button("Delete", role: .destructive) { pendingRoom = room }
+                        }
+                    }
+                    if group.id == groups.last?.id {
+                        scanButton
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var scanButton: some View {
+        if LiDARSupport.canScan {
+            Button {
+                scanning = true
+            } label: {
+                Label("Scan a room", systemImage: "viewfinder")
+            }
+        }
+    }
+
     private func roomCaption(_ room: Room, in home: Home) -> String {
         let devices = home.pins(in: room.id).count
         let deviceText = devices == 1 ? "1 device" : "\(devices) devices"
         let source = room.assets.capturedRoom == nil ? "Drawn plan" : "LiDAR scan"
-        let floor = (FloorStack.hasMultipleLevels(home) || room.level != nil || room.floorName != nil)
-            ? "\(room.resolvedFloorName) · "
-            : ""
+        let floor = room.floor.map { "\(FloorGrouping.label(for: $0)) · " } ?? ""
         let finish = room.flooring.map { " · \($0.title)" } ?? ""
         let pieces = room.placedFurniture.count
         let furniture = pieces == 0 ? "" : (pieces == 1 ? " · 1 piece" : " · \(pieces) pieces")

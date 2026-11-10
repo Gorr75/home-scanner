@@ -64,13 +64,23 @@ public struct ScanPackage: Equatable, Sendable {
     public var layoutJSON: Data
     public var modelGLB: Data
     public var modelUSDZ: Data?
+    /// Photo plates for a one-room folder. Empty for a whole-home package and for older uploads.
+    public var plates: [HomeScannerFile]
 
-    public init(slug: String, title: String, layoutJSON: Data, modelGLB: Data, modelUSDZ: Data? = nil) {
+    public init(
+        slug: String,
+        title: String,
+        layoutJSON: Data,
+        modelGLB: Data,
+        modelUSDZ: Data? = nil,
+        plates: [HomeScannerFile] = []
+    ) {
         self.slug = slug
         self.title = title
         self.layoutJSON = layoutJSON
         self.modelGLB = modelGLB
         self.modelUSDZ = modelUSDZ
+        self.plates = plates
     }
 
     public var files: [HomeScannerFile] {
@@ -78,7 +88,14 @@ public struct ScanPackage: Equatable, Sendable {
         if let modelUSDZ {
             items.append(.modelUSDZ(modelUSDZ))
         }
+        items.append(contentsOf: plates)
         return items
+    }
+
+    public func withPlates(_ plates: [HomeScannerFile]) -> ScanPackage {
+        var copy = self
+        copy.plates = plates
+        return copy
     }
 
     public var zipEntries: [(path: String, data: Data)] {
@@ -124,7 +141,7 @@ public enum HomeExport {
         let glb: Data
         let usdz: Data?
         if HomeFurnishing.needsExport(home) {
-            let drawn = HomeFurnishing.layers(for: home, stacked: FloorStack.hasMultipleLevels(home))
+            let drawn = HomeFurnishing.layers(for: home, stacked: FloorStack.hasStackedFloors(home))
             glb = FloorPlanGLB.data(for: drawn, textures: textures)
             usdz = FurnishedUSDZ.data(layers: drawn)
                 ?? home.structure?.usdz.flatMap { usdzFiles[$0] }

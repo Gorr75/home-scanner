@@ -67,43 +67,33 @@ final class FurnitureAndFloorTests: XCTestCase {
         let bare = try HomeLayoutDocument(home: SampleApartment.make()).encode()
         let bareText = try XCTUnwrap(String(data: bare, encoding: .utf8))
         XCTAssertFalse(bareText.contains("\"furniture\""))
-        XCTAssertFalse(bareText.contains("\"level\""))
         XCTAssertFalse(bareText.contains("\"floor_name\""))
+        XCTAssertFalse(bareText.contains("\"level\""))
         XCTAssertFalse(bareText.contains("\"flooring\""))
+        XCTAssertFalse(bareText.contains("\n    \"floor\""))
         let decodedBare = try HomeLayoutDocument.decode(bare)
-        XCTAssertNil(decodedBare.home.rooms[0].level)
-        XCTAssertEqual(decodedBare.home.rooms[0].resolvedLevel, 0)
+        XCTAssertNil(decodedBare.home.rooms[0].floor)
         XCTAssertTrue(decodedBare.home.rooms[0].placedFurniture.isEmpty)
 
         var home = SampleApartment.make()
-        home.rooms[0].level = 0
-        home.rooms[0].floorName = "Ground"
+        home.rooms[0].floor = 0
         home.rooms[0].flooring = .tile
-        home.rooms[1].level = 1
-        home.rooms[1].floorName = "Upstairs"
+        home.rooms[1].floor = 1
         let plant = PlacedFurniture.placed(catalogId: "plant", x: 6, z: 2)
         home.upsertFurniture(plant, in: SampleApartment.livingRoomID)
         let encoded = try HomeLayoutDocument(home: home).encode()
         let text = try XCTUnwrap(String(data: encoded, encoding: .utf8))
-        XCTAssertTrue(text.contains("\"level\" : 0"))
-        XCTAssertTrue(text.contains("\"level\" : 1"))
-        XCTAssertTrue(text.contains("\"floor_name\" : \"Ground\""))
-        XCTAssertTrue(text.contains("\"floor_name\" : \"Upstairs\""))
+        XCTAssertTrue(text.contains("\"floor\" : 0"))
+        XCTAssertTrue(text.contains("\"floor\" : 1"))
+        XCTAssertFalse(text.contains("\"floor_name\""))
+        XCTAssertFalse(text.contains("\"level\""))
         XCTAssertTrue(text.contains("\"flooring\" : \"tile\""))
         XCTAssertTrue(text.contains("\"catalog_id\" : \"plant\""))
         let decoded = try HomeLayoutDocument.decode(encoded)
         XCTAssertEqual(decoded.home.room(id: SampleApartment.kitchenID)?.flooring, .tile)
-        XCTAssertEqual(decoded.home.room(id: SampleApartment.livingRoomID)?.resolvedLevel, 1)
+        XCTAssertEqual(decoded.home.room(id: SampleApartment.livingRoomID)?.floor, 1)
         XCTAssertEqual(decoded.home.furnitureItem(id: plant.id)?.item.catalogId, "plant")
-
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: bare) as? [String: Any])
-        var homeObject = try XCTUnwrap(object["home"] as? [String: Any])
-        var rooms = try XCTUnwrap(homeObject["rooms"] as? [[String: Any]])
-        rooms[0].removeValue(forKey: "level")
-        homeObject["rooms"] = rooms
-        object["home"] = homeObject
-        let legacy = try JSONSerialization.data(withJSONObject: object)
-        XCTAssertEqual(try HomeLayoutDocument.decode(legacy).home.rooms[0].resolvedLevel, 0)
+        XCTAssertNil(try HomeLayoutDocument.decode(bare).home.rooms[0].floor)
     }
 
     func testCopiedFloorAndFootprint() throws {
@@ -114,24 +104,26 @@ final class FurnitureAndFloorTests: XCTestCase {
             sequence += 1
             return SampleApartment.id(0x80 + sequence)
         }
-        XCTAssertEqual(copies.map(\.resolvedLevel), [1, 1])
-        XCTAssertEqual(copies.map(\.floorName), ["Upstairs", "Upstairs"])
+        XCTAssertEqual(copies.map(\.floor), [1, 1])
+        XCTAssertEqual(home.rooms.filter { $0.floor == 0 }.map(\.name), ["Kitchen", "Living room"])
         XCTAssertEqual(copies.map(\.name), ["Kitchen", "Living room"])
         XCTAssertTrue(copies.allSatisfy { $0.floorPlan.objects.isEmpty && $0.placedFurniture.isEmpty })
         XCTAssertEqual(copies[0].floorPlan.walls.count, home.room(id: SampleApartment.kitchenID)?.floorPlan.walls.count)
         let copiedIDs = Set(copies.flatMap { $0.floorPlan.walls.map(\.id) })
         XCTAssertTrue(copiedIDs.isDisjoint(with: originalWalls))
         XCTAssertEqual(home.pins.count, 4)
-        let summaries = FloorStack.summaries(in: home)
-        XCTAssertEqual(summaries.map(\.level), [0, 1])
-        XCTAssertEqual(summaries.map(\.name), ["Ground", "Upstairs"])
+        let groups = FloorGrouping.groups(in: home.rooms)
+        XCTAssertEqual(groups.map(\.level), [0, 1])
+        XCTAssertEqual(groups.map { FloorGrouping.label(for: $0.level) }, ["Floor 0", "Floor 1"])
 
         var fresh = SampleApartment.make()
         let footprint = try XCTUnwrap(fresh.addFootprintFloor(now: SampleApartment.createdAt) {
             sequence += 1
             return SampleApartment.id(0x90 + sequence)
         })
-        XCTAssertEqual(footprint.resolvedLevel, 1)
+        XCTAssertEqual(footprint.floor, 1)
+        XCTAssertEqual(footprint.name, "Floor 1")
+        XCTAssertEqual(fresh.rooms.filter { $0.floor == 0 }.count, 2)
         XCTAssertEqual(footprint.floorPlan.walls.count, 4)
         let corners = try XCTUnwrap(footprint.floorPlan.floors.first?.corners)
         let minX = try XCTUnwrap(corners.map(\.x).min())
@@ -142,9 +134,7 @@ final class FurnitureAndFloorTests: XCTestCase {
         XCTAssertEqual(maxX, 8.8, accuracy: 1e-9)
         XCTAssertEqual(minZ, 0, accuracy: 1e-9)
         XCTAssertEqual(maxZ, 4, accuracy: 1e-9)
-        fresh.renameFloor(level: 1, to: "  Loft ")
-        XCTAssertEqual(fresh.room(id: footprint.id)?.floorName, "Loft")
-        XCTAssertEqual(FloorStack.summaries(in: fresh)[1].name, "Loft")
+        XCTAssertEqual(FloorGrouping.groups(in: fresh.rooms).map(\.level), [0, 1])
     }
 
     func testExportIncludesFurnitureAndStacksLevels() throws {
@@ -153,14 +143,16 @@ final class FurnitureAndFloorTests: XCTestCase {
             home.room(id: SampleApartment.livingRoomID)?.floorPlan.objects.first { $0.category == "sofa" }
         )
         home.replaceObject(id: scan.id, in: SampleApartment.livingRoomID, with: "sofa")
-        home.rooms[1].level = 1
-        home.rooms[1].floorName = "Upstairs"
+        home.rooms[1].floor = 1
+        home.rooms[0].floor = 0
         home.rooms[0].flooring = .oak
         let packages = try HomeExport.packages(for: home, usdzFiles: ["structure.usdz": Data("scan-usdz".utf8)])
         let homePackage = try XCTUnwrap(packages.first)
         let layout = try XCTUnwrap(String(data: homePackage.layoutJSON, encoding: .utf8))
         XCTAssertTrue(layout.contains("\"catalog_id\" : \"sofa\""))
-        XCTAssertTrue(layout.contains("\"level\" : 1"))
+        XCTAssertTrue(layout.contains("\"floor\" : 1"))
+        XCTAssertFalse(layout.contains("\"floor_name\""))
+        XCTAssertFalse(layout.contains("\"level\""))
         XCTAssertTrue(layout.contains("\"flooring\" : \"oak\""))
         let glbJSON = try glTFJSON(homePackage.modelGLB)
         let materials = try XCTUnwrap(glbJSON["materials"] as? [[String: Any]])
