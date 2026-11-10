@@ -57,7 +57,7 @@ In progress. More than one floor is a stack of plans you edit together, not anot
 
 In this order:
 
-1. **Measure and annotate on the scan.** Tap two points for a distance, then area and volume. Labels, photos, and notes pin to a spot in the room, such as a fuse box photo or a leak note.
+1. **Measure and annotate on the scan.** Tap two points for a distance, then area and volume. Labels, photos, and notes pin to a spot in the room, such as a fuse box photo or a leak note. A photo can carry a dictated voice note, and the app positions that photo on the plan.
 2. **Crash-safe scanning.** The scan saves incrementally during capture, so a failed scan keeps what was captured. The app warns before scanning when device storage is low.
 3. **iCloud backup and sync.** Homes, scans, layouts, GLB and USDZ models, photos, annotations, and inventory sync through a CloudKit private database or an iCloud Drive container. The copy survives a new phone, restores on reinstall, and opens on an iPad or a Mac. The app ID needs an iCloud container entitlement.
    - **Follow-on: an iPad or Mac viewer.** The phone is the scanner, and other devices only need to open the same home.
@@ -71,6 +71,7 @@ In this order:
 6. **First-person walkthrough.** Walk the home at eye height, or follow a recorded camera path. The same view belongs on a tablet.
 7. **Maintenance checklists.** A checklist is tied to a room or an item. It exports to Home Assistant to-dos when the phone is connected, and it works as an in-app reminder otherwise.
 8. **Renovation calculator.** Paint, flooring, and wallpaper quantities come from the measured surfaces, with a rough cost estimate.
+9. **Ceiling height, areas, and heat loss.** Each room records its ceiling height and its wall and window areas, with a rough heat-loss estimate. The figures stay on the room. When the phone is connected, that estimate can feed Home Assistant energy and heating.
 
 ## Later
 
@@ -78,6 +79,8 @@ These need another navigation model, a heavier renderer, or another device.
 
 - **Gaussian splat capture from video.** A photo-real upgrade, built from a video of the room.
 - **360° panoramas.** A full-circle photo of a room. This overlaps the first-person walkthrough.
+- **Tap-the-walls scan.** A fallback for a dim or cluttered room where RoomPlan struggles. Tap the walls to draw the plan.
+- **Bluetooth laser measure.** Optional Bosch and Leica support for exact wall lengths.
 - **Ray tracing on capable devices, and export of a scene image.** The photo-real card needs stills, and a high-quality renderer is how those plates and a shareable picture get made.
 - **Outdoor site plan.** A yard or facade stays a separate source: an ARKit mesh plus a drone or aerial photo as an underlay. The design is in [docs/roadmap.md](docs/roadmap.md).
 
@@ -89,6 +92,7 @@ The groups come from products that already sit next to Home Assistant, from phon
 - [shmuelzon/home-assistant-floor-plan](https://github.com/shmuelzon/home-assistant-floor-plan), a Sweet Home 3D plugin that pre-renders picture-elements floor plans for Lovelace.
 - [Polycam](https://apps.apple.com/us/app/polycam-3d-scanner-modeling/id1532482376), a phone 3D scanner. Reviews complain about broken scan extension and lost long scans. Crash-safe capture and extending a scan across sessions come from that. Gaussian splat capture from video is the photo-real upgrade it already ships.
 - [magicplan](https://apps.apple.com/us/app/magicplan/id427424432), a measured floor-plan app. Measure and annotate, a walkthrough of the plan, 360° panoramas, and quantities for paint, flooring, and wallpaper are what it is used for.
+- [RoomScan Pro](https://apps.apple.com/us/app/roomscan-pro-lidar-floor-plans/id1504050801), a LiDAR floor-plan app. Dictated voice notes on photos that land on the plan, ceiling height with wall and window areas, a per-room heat-loss estimate, a tap-the-walls mode for a hard room, and Bosch and Leica laser measures are what it already does.
 - The public plan-editor demo from 0xProbability (House Control on X): rooms drawn as boxes with handles, snap guides, and openings that slide along a wall. That pattern is geometry only. Device control stays with the Home Assistant work above.
 
 ## What we keep
