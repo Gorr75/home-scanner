@@ -27,7 +27,7 @@ v0.4 is the wall-tablet card and the path for people who furnish outside RoomPla
 - **Photo-real card.** A tablet should blend a lights-off plate and one plate per light with CSS or a room overlay, instead of loading a full 3D model.
 - **Day and night plates switched by `sun.sun`.** The same card can swap two pre-rendered sets when Home Assistant says the sun is down.
 - **Floor switcher and a saved viewpoint per room.** Several rooms already scan into one home, and a tablet needs a floor picker and a camera for each room.
-- **Placeable furniture and decor.** RoomPlan boxes are recognition, and a catalog with move, rotate, and scale is how a person furnishes after the scan.
+- **Placeable furniture and decor.** Done. A catalog of sofas, chairs, tables, beds, shelves, lamps, plants, rugs, a television, and a few more drops into the 3D view and the floor plan. Each item moves, rotates, and scales, and it can replace a RoomPlan box. Placements live on the room and travel in `layout.json`, `model.glb`, and `model.usdz`.
 - **Sweet Home 3D export (`.sh3d`).** People who already use that floor-plan plugin can furnish there and keep its picture-elements workflow.
 
 ## v0.5
@@ -44,10 +44,7 @@ v0.5 is a plan editor for geometry after the scan. RoomPlan still measures the r
 
 These need another navigation model, a heavier renderer, or another device.
 
-- **Multi-floor dollhouse.** More than one floor is a stack of plans you edit together, not another RoomPlan pass. Walls still fade as you approach.
-  - **Floor tabs and a faint ghost of the floor below.** The plan you are editing sits on top of a dim copy of the floor underneath, so stairs and shafts stay aligned.
-  - **A new floor starts from the one underneath.** Copy the floor below, or start from one big room using that footprint, instead of an empty canvas.
-  - **A flooring material for each room.** A simple picker is enough. Photo textures stay for real surfaces captured in the scan.
+- **Multi-floor dollhouse.** Done. Floors stack in one home. The plan has floor tabs and a faint ghost of the floor below. A new floor copies the one underneath or starts as one room from that footprint. Each room has a flooring material, and scan photos still cover a floor when one was captured. In the dollhouse, walls fade as the camera approaches. `layout.json` stores an optional integer `level` and `floor_name` on each room. Missing `level` still means the ground floor.
 - **Ray tracing on capable devices, and export of a scene image.** The photo-real card needs stills, and a high-quality renderer is how those plates and a shareable picture get made.
 - **iCloud sync to an iPad or Mac viewer.** The phone is the scanner, and other devices only need to open the same home.
 - **Outdoor site plan.** A yard or facade stays a separate source: an ARKit mesh plus a drone or aerial photo as an underlay. The design is in [docs/roadmap.md](docs/roadmap.md).

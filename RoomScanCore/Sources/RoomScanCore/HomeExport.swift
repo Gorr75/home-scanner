@@ -123,7 +123,12 @@ public enum HomeExport {
         }
         let glb: Data
         let usdz: Data?
-        if textures.isEmpty, let overview = home.structure?.overviewFloorPlan, !overview.isEmpty {
+        if HomeFurnishing.needsExport(home) {
+            let drawn = HomeFurnishing.layers(for: home, stacked: FloorStack.hasMultipleLevels(home))
+            glb = FloorPlanGLB.data(for: drawn, textures: textures)
+            usdz = FurnishedUSDZ.data(layers: drawn)
+                ?? home.structure?.usdz.flatMap { usdzFiles[$0] }
+        } else if textures.isEmpty, let overview = home.structure?.overviewFloorPlan, !overview.isEmpty {
             glb = FloorPlanGLB.data(for: overview)
             usdz = home.structure?.usdz.flatMap { usdzFiles[$0] }
         } else if textures.isEmpty {
@@ -155,11 +160,18 @@ public enum HomeExport {
             structure: nil
         )
         let layers = [(room.floorPlan, Vec3.zero)]
-        let glb = FloorPlanGLB.data(for: room.floorPlan, textures: textures)
+        let glb: Data
         let usdz: Data?
-        if textures.isEmpty {
+        if HomeFurnishing.needsExport(room) {
+            let drawn = [HomeFurnishing.layer(for: room)]
+            glb = FloorPlanGLB.data(for: drawn, textures: textures)
+            usdz = FurnishedUSDZ.data(layers: drawn)
+                ?? room.assets.usdz.flatMap { usdzFiles[$0] }
+        } else if textures.isEmpty {
+            glb = FloorPlanGLB.data(for: room.floorPlan, textures: textures)
             usdz = room.assets.usdz.flatMap { usdzFiles[$0] }
         } else {
+            glb = FloorPlanGLB.data(for: room.floorPlan, textures: textures)
             usdz = TexturedUSDZ.data(layers: layers, textures: textures)
                 ?? room.assets.usdz.flatMap { usdzFiles[$0] }
         }

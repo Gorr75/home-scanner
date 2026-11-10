@@ -178,8 +178,8 @@ struct Mat4: Equatable {
 public enum SurfaceFrame {
     /// Bottom-left, bottom-right, top-right, top-left. Shifted a centimeter off the wall so a texture sits on the face.
     public static func wallCorners(_ wall: WallSegment, offset: Vec3 = .zero, lift: Double = 0.02) -> [Vec3] {
-        let start = Vec3(x: wall.start.x + offset.x, y: wall.start.y, z: wall.start.z + offset.z)
-        let end = Vec3(x: wall.end.x + offset.x, y: wall.end.y, z: wall.end.z + offset.z)
+        let start = wall.start + offset
+        let end = wall.end + offset
         let up = Vec3(x: 0, y: wall.height, z: 0)
         let corners = [start, end, end + up, start + up]
         let normal = faceNormal(corners)
@@ -189,9 +189,9 @@ public enum SurfaceFrame {
     public static func floorCorners(_ floor: FloorPolygon, offset: Vec3 = .zero, lift: Double = 0.02) -> [Vec3] {
         let raw: [Vec3]
         if floor.corners.count == 4 {
-            raw = floor.corners.map { Vec3(x: $0.x + offset.x, y: $0.y, z: $0.z + offset.z) }
+            raw = floor.corners.map { $0 + offset }
         } else if floor.corners.count >= 3 {
-            let shifted = floor.corners.map { Vec3(x: $0.x + offset.x, y: $0.y, z: $0.z + offset.z) }
+            let shifted = floor.corners.map { $0 + offset }
             let minX = shifted.map(\.x).min() ?? 0
             let maxX = shifted.map(\.x).max() ?? 0
             let minZ = shifted.map(\.z).min() ?? 0

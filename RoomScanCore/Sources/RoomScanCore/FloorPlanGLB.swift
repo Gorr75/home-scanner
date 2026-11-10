@@ -1,5 +1,25 @@
 import Foundation
 
+/// One room (or one storey of a room) ready to bake into a GLB or USDZ.
+public struct DrawnLayer: Sendable, Equatable {
+    public var plan: FloorPlan
+    public var offset: Vec3
+    public var furniture: [PlacedFurniture]
+    public var flooring: FlooringMaterial?
+
+    public init(
+        plan: FloorPlan,
+        offset: Vec3,
+        furniture: [PlacedFurniture] = [],
+        flooring: FlooringMaterial? = nil
+    ) {
+        self.plan = plan
+        self.offset = offset
+        self.furniture = furniture
+        self.flooring = flooring
+    }
+}
+
 /// A glTF binary model of a floor plan. Y is up and units are meters, matching the USDZ.
 public enum FloorPlanGLB {
     public static func data(for plan: FloorPlan, offset: Vec3 = .zero, textures: [AppliedTexture] = []) -> Data {
@@ -7,35 +27,25 @@ public enum FloorPlanGLB {
     }
 
     public static func data(for layers: [(plan: FloorPlan, offset: Vec3)], textures: [AppliedTexture] = []) -> Data {
-        var floors = TriangleMesh()
-        var walls = TriangleMesh()
-        var objects = TriangleMesh()
-        var openings = TriangleMesh()
-        for layer in layers {
-            floors.addFloors(layer.plan.floors, offset: layer.offset)
-            walls.addWalls(layer.plan.walls, offset: layer.offset)
-            objects.addObjects(layer.plan.objects, offset: layer.offset)
-            openings.addOpenings(layer.plan.openings, offset: layer.offset)
-        }
-        if floors.isEmpty && walls.isEmpty && objects.isEmpty && openings.isEmpty {
-            floors.addBox(
-                center: Vec3(x: 0, y: 0.01, z: 0),
-                size: Vec3(x: 1, y: 0.02, z: 1),
-                yaw: 0
-            )
-        }
+        data(for: layers.map { DrawnLayer(plan: $0.plan, offset: $0.offset) }, textures: textures)
+    }
+
+    public static func data(for layers: [DrawnLayer], textures: [AppliedTexture] = []) -> Data {
+        let assembled = ModelAssembly.buckets(for: layers)
+        var primitives: [GLBPrimitive] = assembled.floors.map { GLBPrimitive(mesh: $0.mesh, shade: $0.shade) }
+        primitives.append(GLBPrimitive(mesh: assembled.walls, color: [0.93, 0.91, 0.86, 1.0], roughness: 0.85))
+        primitives.append(GLBPrimitive(mesh: assembled.objects, color: [0.55, 0.46, 0.36, 1.0], roughness: 0.7))
+        primitives.append(GLBPrimitive(mesh: assembled.openings, color: [0.45, 0.32, 0.22, 1.0], roughness: 0.55))
+        primitives.append(contentsOf: assembled.furniture.map {
+            GLBPrimitive(mesh: $0.mesh, shade: $0.shade, name: $0.name)
+        })
         return GLBEncoder.encode(
-            primitives: [
-                (floors, [0.86, 0.80, 0.68, 1.0]),
-                (walls, [0.93, 0.91, 0.86, 1.0]),
-                (objects, [0.55, 0.46, 0.36, 1.0]),
-                (openings, [0.45, 0.32, 0.22, 1.0])
-            ],
+            primitives: primitives,
             textured: texturedQuads(layers: layers, textures: textures)
         )
     }
 
-    private static func texturedQuads(layers: [(plan: FloorPlan, offset: Vec3)], textures: [AppliedTexture]) -> [TexturedQuad] {
+    private static func texturedQuads(layers: [DrawnLayer], textures: [AppliedTexture]) -> [TexturedQuad] {
         var quads: [TexturedQuad] = []
         for texture in textures where texture.corners.count == 4 && !texture.jpeg.isEmpty {
             for layer in layers {
@@ -160,6 +170,43 @@ struct TriangleMesh {
         }
     }
 
+    mutating func addCylinder(center: Vec3, diameter: Double, height: Double, segments: Int = 12) {
+        let radius = max(diameter, 0.01) / 2
+        let halfHeight = max(height, 0.01) / 2
+        let bottom = center.y - halfHeight
+        let top = center.y + halfHeight
+        let count = max(segments, 6)
+        var ring: [(Double, Double)] = []
+        for index in 0..<count {
+            let angle = Double(index) / Double(count) * 2 * Double.pi
+            ring.append((Trig.cos(angle) * radius, Trig.sin(angle) * radius))
+        }
+        for index in 0..<count {
+            let current = ring[index]
+            let next = ring[(index + 1) % count]
+            let normal = Vec3(x: current.0 + next.0, y: 0, z: current.1 + next.1).normalized()
+            addQuad(
+                Vec3(x: center.x + current.0, y: bottom, z: center.z + current.1),
+                Vec3(x: center.x + next.0, y: bottom, z: center.z + next.1),
+                Vec3(x: center.x + next.0, y: top, z: center.z + next.1),
+                Vec3(x: center.x + current.0, y: top, z: center.z + current.1),
+                normal: normal
+            )
+            addTriangle(
+                Vec3(x: center.x, y: top, z: center.z),
+                Vec3(x: center.x + current.0, y: top, z: center.z + current.1),
+                Vec3(x: center.x + next.0, y: top, z: center.z + next.1),
+                normal: Vec3(x: 0, y: 1, z: 0)
+            )
+            addTriangle(
+                Vec3(x: center.x, y: bottom, z: center.z),
+                Vec3(x: center.x + next.0, y: bottom, z: center.z + next.1),
+                Vec3(x: center.x + current.0, y: bottom, z: center.z + current.1),
+                normal: Vec3(x: 0, y: -1, z: 0)
+            )
+        }
+    }
+
     private mutating func addTriangle(_ a: Vec3, _ b: Vec3, _ c: Vec3, normal: Vec3) {
         let base = UInt32(positions.count / 3)
         append(a, normal: normal)
@@ -183,12 +230,174 @@ struct TriangleMesh {
     }
 
     private func shifted(_ point: Vec3, by offset: Vec3) -> Vec3 {
-        Vec3(x: point.x + offset.x, y: point.y, z: point.z + offset.z)
+        point + offset
+    }
+}
+
+struct AssembledMesh {
+    var shade: Shade
+    var mesh: TriangleMesh
+    var name: String?
+}
+
+struct ModelBuckets {
+    var floors: [AssembledMesh]
+    var walls: TriangleMesh
+    var objects: TriangleMesh
+    var openings: TriangleMesh
+    var furniture: [AssembledMesh]
+
+    var isEmpty: Bool {
+        floors.allSatisfy(\.mesh.isEmpty) && walls.isEmpty && objects.isEmpty && openings.isEmpty && furniture.allSatisfy(\.mesh.isEmpty)
+    }
+}
+
+enum ModelAssembly {
+    static func buckets(for layers: [DrawnLayer]) -> ModelBuckets {
+        var floors: [Shade: TriangleMesh] = [:]
+        var walls = TriangleMesh()
+        var objects = TriangleMesh()
+        var openings = TriangleMesh()
+        var furniture: [String: (shade: Shade, mesh: TriangleMesh)] = [:]
+        for layer in layers {
+            let floorShade = Shade(flooring: layer.flooring)
+            var floorMesh = floors[floorShade] ?? TriangleMesh()
+            floorMesh.addFloors(layer.plan.floors, offset: layer.offset)
+            floors[floorShade] = floorMesh
+            walls.addWalls(layer.plan.walls, offset: layer.offset)
+            let hidden = Set(layer.furniture.compactMap(\.replacesObjectId))
+            objects.addObjects(layer.plan.objects.filter { !hidden.contains($0.id) }, offset: layer.offset)
+            openings.addOpenings(layer.plan.openings, offset: layer.offset)
+            addFurniture(layer.furniture, offset: layer.offset, into: &furniture)
+        }
+        if floors.values.allSatisfy(\.isEmpty) && walls.isEmpty && objects.isEmpty && openings.isEmpty && furniture.isEmpty {
+            var pad = TriangleMesh()
+            pad.addBox(
+                center: Vec3(x: 0, y: 0.01, z: 0),
+                size: Vec3(x: 1, y: 0.02, z: 1),
+                yaw: 0
+            )
+            floors[Shade(flooring: nil)] = pad
+        }
+        return ModelBuckets(
+            floors: floors.keys.sorted().map { AssembledMesh(shade: $0, mesh: floors[$0] ?? TriangleMesh(), name: nil) },
+            walls: walls,
+            objects: objects,
+            openings: openings,
+            furniture: furniture.keys.sorted().map { key in
+                let entry = furniture[key]
+                return AssembledMesh(shade: entry?.shade ?? Shade(flooring: nil), mesh: entry?.mesh ?? TriangleMesh(), name: key)
+            }
+        )
+    }
+
+    private static func addFurniture(
+        _ items: [PlacedFurniture],
+        offset: Vec3,
+        into meshes: inout [String: (shade: Shade, mesh: TriangleMesh)]
+    ) {
+        for item in items {
+            for part in FurnitureGeometry.parts(of: item) {
+                let shade = Shade(material: part.material)
+                let group = "furniture_\(item.catalogId)_\(part.material.name)"
+                var entry = meshes[group] ?? (shade, TriangleMesh())
+                let center = part.center + offset
+                switch part.shape {
+                case .box:
+                    entry.mesh.addBox(center: center, size: part.size, yaw: part.yaw)
+                case .cylinder:
+                    entry.mesh.addCylinder(center: center, diameter: max(part.size.x, 0.01), height: max(part.size.y, 0.01))
+                }
+                meshes[group] = entry
+            }
+        }
+    }
+}
+
+struct Shade: Hashable, Comparable {
+    var red: Int
+    var green: Int
+    var blue: Int
+    var alpha: Int
+    var roughness: Int
+    var metallic: Int
+
+    init(material: FurnitureMaterial) {
+        red = Self.quantized(material.red)
+        green = Self.quantized(material.green)
+        blue = Self.quantized(material.blue)
+        alpha = Self.quantized(material.alpha)
+        roughness = Self.quantized(material.roughness)
+        metallic = Self.quantized(material.metallic)
+    }
+
+    init(flooring: FlooringMaterial?) {
+        if let flooring {
+            red = Self.quantized(flooring.red)
+            green = Self.quantized(flooring.green)
+            blue = Self.quantized(flooring.blue)
+        } else {
+            red = Self.quantized(0.86)
+            green = Self.quantized(0.80)
+            blue = Self.quantized(0.68)
+        }
+        alpha = 1000
+        roughness = 900
+        metallic = 0
+    }
+
+    var color: [Double] {
+        [Double(red) / 1000, Double(green) / 1000, Double(blue) / 1000, Double(alpha) / 1000]
+    }
+
+    var roughnessFactor: Double { Double(roughness) / 1000 }
+    var metallicFactor: Double { Double(metallic) / 1000 }
+    var blends: Bool { alpha < 990 }
+
+    var token: String { "\(red)-\(green)-\(blue)-\(alpha)" }
+
+    static func < (lhs: Shade, rhs: Shade) -> Bool {
+        if lhs.token != rhs.token { return lhs.token < rhs.token }
+        if lhs.roughness != rhs.roughness { return lhs.roughness < rhs.roughness }
+        return lhs.metallic < rhs.metallic
+    }
+
+    private static func quantized(_ value: Double) -> Int {
+        Int((min(1, max(0, value)) * 1000).rounded())
+    }
+}
+
+struct GLBPrimitive {
+    var mesh: TriangleMesh
+    var color: [Double]
+    var roughness: Double
+    var metallic: Double
+    var blend: Bool
+    var name: String?
+
+    init(mesh: TriangleMesh, color: [Double], roughness: Double = 0.9, metallic: Double = 0, blend: Bool = false, name: String? = nil) {
+        self.mesh = mesh
+        self.color = color
+        self.roughness = roughness
+        self.metallic = metallic
+        self.blend = blend
+        self.name = name
+    }
+
+    init(mesh: TriangleMesh, shade: Shade, name: String? = nil) {
+        self.init(
+            mesh: mesh,
+            color: shade.color,
+            roughness: shade.roughnessFactor,
+            metallic: shade.metallicFactor,
+            blend: shade.blends,
+            name: name
+        )
     }
 }
 
 enum GLBEncoder {
-    static func encode(primitives: [(TriangleMesh, [Double])], textured: [TexturedQuad] = []) -> Data {
+    static func encode(primitives: [GLBPrimitive], textured: [TexturedQuad] = []) -> Data {
         var buffer = Data()
         var bufferViews: [[String: Any]] = []
         var accessors: [[String: Any]] = []
@@ -197,7 +406,8 @@ enum GLBEncoder {
         var images: [[String: Any]] = []
         var textureJSON: [[String: Any]] = []
 
-        for (mesh, color) in primitives where !mesh.isEmpty {
+        for primitive in primitives where !primitive.mesh.isEmpty {
+            let mesh = primitive.mesh
             let positionView = append(floats: mesh.positions, to: &buffer, views: &bufferViews, target: 34962)
             let normalView = append(floats: mesh.normals, to: &buffer, views: &bufferViews, target: 34962)
             let indexView = append(indices: mesh.indices, to: &buffer, views: &bufferViews)
@@ -216,14 +426,21 @@ enum GLBEncoder {
                 "type": "SCALAR"
             ])
             let materialIndex = materials.count
-            materials.append([
+            var material: [String: Any] = [
                 "doubleSided": true,
                 "pbrMetallicRoughness": [
-                    "baseColorFactor": color,
-                    "metallicFactor": 0.0,
-                    "roughnessFactor": 0.9
+                    "baseColorFactor": primitive.color,
+                    "metallicFactor": primitive.metallic,
+                    "roughnessFactor": primitive.roughness
                 ]
-            ])
+            ]
+            if primitive.blend {
+                material["alphaMode"] = "BLEND"
+            }
+            if let name = primitive.name {
+                material["name"] = name
+            }
+            materials.append(material)
             primitiveJSON.append([
                 "attributes": ["POSITION": positionAccessor, "NORMAL": positionAccessor + 1],
                 "indices": positionAccessor + 2,

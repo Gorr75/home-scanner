@@ -59,6 +59,23 @@ Each LiDAR scan starts at its own origin. Pins use that room's coordinates. Afte
 | `floor_plan` | Walls, openings, floors, and objects in that room's scan space. |
 | `assets.usdz` | Optional path relative to the home folder, for example `rooms/<id>.usdz`. |
 | `assets.captured_room` | Optional path of Apple's encoded `CapturedRoom` JSON. |
+| `level` | Optional integer storey. `0` is ground, positive is up, negative is below grade. Missing means ground, so older files stay one floor. |
+| `floor_name` | Optional name for that storey, such as `"Ground"` or `"Upstairs"`. Omitted when unset. |
+| `flooring` | Optional finish: `oak`, `walnut`, `tile`, `stone`, `carpet`, `concrete`, `herringbone`, or `painted`. A scan photo still covers the floor when one exists. |
+| `furniture` | Optional catalog items. Omitted when the room has none. |
+
+`level` and `floor_name` are the floor fields a card can read. Both are optional. A reader that ignores unknown keys keeps working on older files, and a file written before floors existed still decodes.
+
+### `furniture[]`
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable placement id. |
+| `catalog_id` | Catalog token such as `sofa`, `dining_chair`, `bed`, `floor_lamp`, `plant`, `rug`, `television`. |
+| `position` | Center of the bottom face, in the room's scan space. |
+| `yaw` | Radians around Y. `0` means the item's width runs along +X. |
+| `scale` | Multiplier on the catalog item's width, height, and depth. |
+| `replaces_object_id` | Optional id of a RoomPlan `objects[]` box this item stands in for. The box stays in the plan and is hidden while this is set. |
 
 `assets` is `{}` when the room has no sidecar files. Paths inside it are for this phone. An integration that only draws the plan and the pins can ignore them. Reject any path that is absolute or contains `..`.
 

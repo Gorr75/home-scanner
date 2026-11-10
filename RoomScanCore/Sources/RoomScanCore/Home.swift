@@ -125,19 +125,36 @@ public struct Room: Codable, Equatable, Identifiable, Sendable {
     public var createdAt: Date
     public var floorPlan: FloorPlan
     public var assets: RoomAssets
+    /// Storey index. `0` is the ground floor, positive is up, negative is below grade.
+    /// Omitted on homes saved before floors existed; those rooms read as ground level.
+    public var level: Int?
+    /// Name shared by the rooms on this storey, such as "Ground" or "Upstairs".
+    public var floorName: String?
+    /// Picked floor finish. A scan photo still covers this when one is projected.
+    public var flooring: FlooringMaterial?
+    /// Catalog items placed in this room. Nil when the room has none, so older files stay unchanged.
+    public var furniture: [PlacedFurniture]?
 
     public init(
         id: UUID,
         name: String,
         createdAt: Date,
         floorPlan: FloorPlan,
-        assets: RoomAssets = RoomAssets()
+        assets: RoomAssets = RoomAssets(),
+        level: Int? = nil,
+        floorName: String? = nil,
+        flooring: FlooringMaterial? = nil,
+        furniture: [PlacedFurniture]? = nil
     ) {
         self.id = id
         self.name = name
         self.createdAt = createdAt
         self.floorPlan = floorPlan
         self.assets = assets
+        self.level = level
+        self.floorName = floorName
+        self.flooring = flooring
+        self.furniture = furniture
     }
 }
 

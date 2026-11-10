@@ -7,14 +7,37 @@ struct PlanLayer: Equatable, Identifiable {
     var plan: FloorPlan
     var offset: Vec3
     var tintIndex: Int
+    var furniture: [PlacedFurniture] = []
+    var flooring: FlooringMaterial? = nil
+    var ghost: Bool = false
 }
 
 enum PlanLayers {
-    static func rooms(_ rooms: [Room], unified: Bool) -> [PlanLayer] {
+    static func rooms(_ rooms: [Room], unified: Bool, stacked: Bool = false) -> [PlanLayer] {
         let frames = FloorPlanLayout.frames(rooms: rooms, coordinatesAreUnified: unified)
         return rooms.enumerated().map { index, room in
-            let offset = frames.first { $0.roomId == room.id }?.offset ?? .zero
-            return PlanLayer(id: room.id, name: room.name, plan: room.floorPlan, offset: offset, tintIndex: index)
+            var offset = frames.first { $0.roomId == room.id }?.offset ?? .zero
+            if stacked {
+                offset = Vec3(x: offset.x, y: FloorStack.elevation(for: room.resolvedLevel), z: offset.z)
+            }
+            return PlanLayer(
+                id: room.id,
+                name: room.name,
+                plan: room.floorPlan,
+                offset: offset,
+                tintIndex: index,
+                furniture: room.placedFurniture,
+                flooring: room.flooring
+            )
+        }
+    }
+
+    /// A dim copy of another storey, drawn under the plan being edited.
+    static func ghost(_ rooms: [Room], unified: Bool) -> [PlanLayer] {
+        rooms(rooms, unified: unified).map { layer in
+            var copy = layer
+            copy.ghost = true
+            return copy
         }
     }
 
@@ -27,7 +50,9 @@ enum PlanLayers {
     }
 
     static func bounds(of layers: [PlanLayer]) -> AABB {
-        let boxes = layers.map { FloorPlanGeometry.bounds(of: $0.plan).translated(by: $0.offset) }
+        let boxes = layers.map {
+            FloorPlanGeometry.bounds(of: $0.plan, furniture: $0.furniture).translated(by: $0.offset)
+        }
         guard let first = boxes.first else {
             return AABB(min: .zero, max: Vec3(x: 1, y: 1, z: 1))
         }

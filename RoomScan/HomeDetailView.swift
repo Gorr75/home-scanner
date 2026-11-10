@@ -21,6 +21,8 @@ struct HomeDetailView: View {
     @State private var uploadedMessage = ""
     @State private var pendingPlacements: [DevicePin] = []
     @State private var confirmAutoPlace = false
+    @State private var renamingFloorLevel: Int?
+    @State private var floorNameDraft = ""
 
     private var home: Home? { store.home(id: homeID) }
 
@@ -82,6 +84,42 @@ struct HomeDetailView: View {
                                 Label("Scan a room", systemImage: "viewfinder")
                             }
                         }
+                    }
+                    Section {
+                        if home.rooms.isEmpty {
+                            Text("Scan a room, then stack another floor on top of it.")
+                                .foregroundStyle(Theme.secondary)
+                        } else {
+                            ForEach(FloorStack.summaries(in: home)) { floor in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(floor.name)
+                                    Text("Level \(floor.level) · \(floor.roomIDs.count) \(floor.roomIDs.count == 1 ? "room" : "rooms")")
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.secondary)
+                                }
+                                .swipeActions {
+                                    Button("Rename") {
+                                        floorNameDraft = floor.name
+                                        renamingFloorLevel = floor.level
+                                    }
+                                    .tint(Theme.accent)
+                                }
+                            }
+                            Button {
+                                mutate { _ = $0.addCopiedFloor() }
+                            } label: {
+                                Label("New floor from the one below", systemImage: "square.on.square")
+                            }
+                            Button {
+                                mutate { _ = $0.addFootprintFloor() }
+                            } label: {
+                                Label("New floor as one room", systemImage: "square.dashed")
+                            }
+                        }
+                    } header: {
+                        Text("Floors")
+                    } footer: {
+                        Text("A copied floor keeps the walls so the next storey lines up. One room uses that floor’s footprint. Open the 3D model and choose Dollhouse to see them stacked.")
                     }
                     Section {
                         if capturedCount(home) >= 2 {
@@ -195,6 +233,19 @@ struct HomeDetailView: View {
         } message: {
             Text(DeviceAutoPlace.confirmDetail)
         }
+        .alert("Rename floor", isPresented: Binding(
+            get: { renamingFloorLevel != nil },
+            set: { if !$0 { renamingFloorLevel = nil } }
+        )) {
+            TextField("Name", text: $floorNameDraft)
+            Button("Save") {
+                if let level = renamingFloorLevel {
+                    mutate { $0.renameFloor(level: level, to: floorNameDraft) }
+                }
+                renamingFloorLevel = nil
+            }
+            Button("Cancel", role: .cancel) { renamingFloorLevel = nil }
+        }
         .alert("Sent to Home Assistant", isPresented: $showUploaded) {
             Button("Open Home Assistant") { openCompanion() }
             Button("OK", role: .cancel) {}
@@ -237,6 +288,11 @@ struct HomeDetailView: View {
     }
 
     private func previewLayers(_ home: Home) -> [PlanLayer] {
+        if FloorStack.hasMultipleLevels(home) {
+            let level = FloorStack.summaries(in: home).first?.level ?? 0
+            let rooms = home.rooms.filter { $0.resolvedLevel == level }
+            return PlanLayers.rooms(rooms, unified: home.coordinatesAreUnified)
+        }
         if let overview = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return PlanLayers.overview(overview, name: home.name)
         }
@@ -246,6 +302,10 @@ struct HomeDetailView: View {
     private func layoutCaption(_ home: Home) -> String {
         if let _ = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return "The thumbnail is the aligned shell. Device pins stay in each room's own scan."
+        }
+        if FloorStack.hasMultipleLevels(home) {
+            let count = FloorStack.summaries(in: home).count
+            return "\(count) floors. The thumbnail is the lowest one. The 3D model can show the dollhouse."
         }
         if home.coordinatesAreUnified {
             return "Drag to orbit the 3D model. The floor plan is the same measurement, seen from above."
@@ -257,7 +317,13 @@ struct HomeDetailView: View {
         let devices = home.pins(in: room.id).count
         let deviceText = devices == 1 ? "1 device" : "\(devices) devices"
         let source = room.assets.capturedRoom == nil ? "Drawn plan" : "LiDAR scan"
-        return "\(source) · \(deviceText)"
+        let floor = (FloorStack.hasMultipleLevels(home) || room.level != nil || room.floorName != nil)
+            ? "\(room.resolvedFloorName) · "
+            : ""
+        let finish = room.flooring.map { " · \($0.title)" } ?? ""
+        let pieces = room.placedFurniture.count
+        let furniture = pieces == 0 ? "" : (pieces == 1 ? " · 1 piece" : " · \(pieces) pieces")
+        return "\(floor)\(source) · \(deviceText)\(finish)\(furniture)"
     }
 
     private func capturedCount(_ home: Home) -> Int {

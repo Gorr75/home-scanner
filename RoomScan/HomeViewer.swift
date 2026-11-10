@@ -17,6 +17,12 @@ struct HomeViewer: View {
     @State private var errorMessage: String?
     @State private var showHeat = false
     @State private var previewHour: Double?
+    @State private var selectedLevel: Int?
+    @State private var dollhouse = false
+    @State private var placingFurniture = false
+    @State private var catalogItemID: String?
+    @State private var showCatalog = false
+    @State private var selectedFurnitureID: UUID?
     @AppStorage(DaylightPreference.enabledKey) private var daylightEnabled = true
 
     private var home: Home? { store.home(id: homeID) }
@@ -25,7 +31,25 @@ struct HomeViewer: View {
         CharcoalScreen {
             if let home {
                 VStack(spacing: 0) {
+                    if FloorStack.hasMultipleLevels(home), let level = selectedLevel ?? FloorStack.summaries(in: home).first?.level {
+                        FloorTabBar(floors: FloorStack.summaries(in: home), selection: level) { picked in
+                            selectedLevel = picked
+                            dollhouse = false
+                        }
+                    }
                     viewer(home)
+                    if let selectedFurnitureID, let furniture = home.furnitureItem(id: selectedFurnitureID)?.item {
+                        FurnitureAdjustBar(
+                            title: FurnitureCatalog.item(id: furniture.catalogId)?.name ?? "Furniture",
+                            onCharcoal: true,
+                            onRotate: { delta in mutate { $0.rotateFurniture(id: furniture.id, by: delta) } },
+                            onScale: { factor in mutate { $0.scaleFurniture(id: furniture.id, by: factor) } },
+                            onDelete: {
+                                mutate { $0.removeFurniture(id: furniture.id) }
+                                selectedFurnitureID = nil
+                            }
+                        )
+                    }
                     if showsPins(home), let pin = home.pins.first(where: { $0.id == selectedPinID }) {
                         selectionBar(pin)
                     }
@@ -37,16 +61,37 @@ struct HomeViewer: View {
         .navigationTitle(showsPlan ? "Floor plan" : "3D model")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if home?.coordinatesAreUnified == true {
+            if let home {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Picker("Device type", selection: $placeKind) {
-                            ForEach(DeviceKind.allCases, id: \.self) { kind in
-                                Label(kind.label, systemImage: kind.symbolName).tag(kind)
+                        if home.coordinatesAreUnified {
+                            Picker("Device type", selection: $placeKind) {
+                                ForEach(DeviceKind.allCases, id: \.self) { kind in
+                                    Label(kind.label, systemImage: kind.symbolName).tag(kind)
+                                }
+                            }
+                            Button(placing ? "Stop placing" : "Place a device") {
+                                placing.toggle()
+                                if placing { placingFurniture = false }
                             }
                         }
-                        Button(placing ? "Stop placing" : "Place a device") { placing.toggle() }
-                        if showsPlan {
+                        Button(placingFurniture ? "Stop placing furniture" : "Add furniture") {
+                            if placingFurniture {
+                                placingFurniture = false
+                            } else {
+                                showCatalog = true
+                            }
+                        }
+                        if !showsPlan {
+                            Button(dollhouse ? "Show this floor" : "Dollhouse") {
+                                dollhouse.toggle()
+                            }
+                        }
+                        if !home.rooms.isEmpty {
+                            Button("New floor from the one below") { addCopiedFloor() }
+                            Button("New floor as one room") { addFootprintFloor() }
+                        }
+                        if showsPlan, home.coordinatesAreUnified {
                             Button(showHeat ? "Hide sensor heatmap" : "Show sensor heatmap") {
                                 showHeat.toggle()
                             }
@@ -54,9 +99,9 @@ struct HomeViewer: View {
                         Button("Reset camera") { cameraToken += 1 }
                             .disabled(showsPlan)
                     } label: {
-                        Image(systemName: placing ? "mappin.circle.fill" : "plus")
+                        Image(systemName: placing || placingFurniture ? "plus.circle.fill" : "plus")
                     }
-                    .accessibilityLabel("Place a device")
+                    .accessibilityLabel("Place or add a floor")
                 }
             }
         }
@@ -91,6 +136,13 @@ struct HomeViewer: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .sheet(isPresented: $showCatalog) {
+            FurnitureCatalogSheet(suggestedID: nil) { item in
+                catalogItemID = item.id
+                placingFurniture = true
+                placing = false
+            }
+        }
         .charcoalChrome()
     }
 
@@ -107,9 +159,25 @@ struct HomeViewer: View {
                 pinLooks: pinBoard.looksByPin(for: home.pins),
                 heatSamples: showHeat ? heatSamples(for: home) : [],
                 onCharcoal: true,
-                onSelectPin: { selectedPinID = $0 },
+                ghostLayers: ghostLayers(home),
+                selectedFurnitureID: selectedFurnitureID,
+                placingFurniture: placingFurniture,
+                onSelectPin: { id in
+                    selectedPinID = id
+                    if id != nil { selectedFurnitureID = nil }
+                },
                 onMovePin: { id, x, z in move(id, x: x, z: z) },
-                onCreate: { x, z in create(in: home, x: x, z: z, y: placeKind.defaultHeight) }
+                onCreate: { x, z in create(in: home, x: x, z: z, y: placeKind.defaultHeight) },
+                onSelectFurniture: { id in
+                    selectedFurnitureID = id
+                    if id != nil { selectedPinID = nil }
+                },
+                onMoveFurniture: { id, x, z in
+                    mutate { $0.moveFurniture(id: id, x: x, z: z) }
+                },
+                onCreateFurniture: { x, z in
+                    placeFurniture(x: x, y: 0, z: z, in: home)
+                }
             )
         } else {
             TimelineView(.periodic(from: .now, by: 30)) { timeline in
@@ -121,7 +189,7 @@ struct HomeViewer: View {
                 )
                 RoomModelView(
                     layers: layers(home),
-                    usdzURL: store.structureModelURL(in: home),
+                    usdzURL: proceduralModel(home) ? nil : store.structureModelURL(in: home),
                     pins: home.pins,
                     showPins: showsPins(home),
                     looksByEntity: pinBoard.looksByEntity(for: home.pins),
@@ -137,7 +205,21 @@ struct HomeViewer: View {
                     },
                     onRenderedUSDZ: { renderedUSDZ = $0 },
                     surfacePaints: TexturePaints.forHome(home, store: store),
-                    daylight: tint
+                    daylight: tint,
+                    dollhouse: dollhouse,
+                    selectedFurnitureID: selectedFurnitureID,
+                    placingFurniture: placingFurniture,
+                    onSelectFurniture: { id in
+                        selectedFurnitureID = id
+                        if id != nil { selectedPinID = nil }
+                    },
+                    onMoveFurniture: { id, point in
+                        let offset = layers(home).first { $0.furniture.contains { $0.id == id } }?.offset ?? .zero
+                        mutate { $0.moveFurniture(id: id, x: point.x - offset.x, z: point.z - offset.z) }
+                    },
+                    onPlaceFurniture: { point in
+                        placeFurniture(x: point.x, y: point.y, z: point.z, in: home)
+                    }
                 )
                 .overlay(alignment: .top) {
                     if let tint {
@@ -150,15 +232,50 @@ struct HomeViewer: View {
         }
     }
 
+    private func activeLevel(_ home: Home) -> Int {
+        let floors = FloorStack.summaries(in: home)
+        if let selectedLevel, floors.contains(where: { $0.level == selectedLevel }) {
+            return selectedLevel
+        }
+        return floors.first?.level ?? 0
+    }
+
+    private func editingRooms(_ home: Home) -> [Room] {
+        if dollhouse && !showsPlan { return home.rooms }
+        guard FloorStack.hasMultipleLevels(home) else { return home.rooms }
+        let level = activeLevel(home)
+        return home.rooms.filter { $0.resolvedLevel == level }
+    }
+
     private func layers(_ home: Home) -> [PlanLayer] {
+        let rooms = editingRooms(home)
+        if dollhouse && !showsPlan {
+            return PlanLayers.rooms(home.rooms, unified: home.coordinatesAreUnified, stacked: true)
+        }
+        if FloorStack.hasMultipleLevels(home) || home.rooms.contains(where: { !$0.placedFurniture.isEmpty || $0.flooring != nil }) {
+            return PlanLayers.rooms(rooms, unified: home.coordinatesAreUnified)
+        }
         if let overview = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return PlanLayers.overview(overview, name: home.name)
         }
-        return PlanLayers.rooms(home.rooms, unified: home.coordinatesAreUnified)
+        return PlanLayers.rooms(rooms, unified: home.coordinatesAreUnified)
+    }
+
+    private func ghostLayers(_ home: Home) -> [PlanLayer] {
+        guard showsPlan, FloorStack.hasMultipleLevels(home) else { return [] }
+        let below = activeLevel(home) - 1
+        let rooms = home.rooms.filter { $0.resolvedLevel == below }
+        guard !rooms.isEmpty else { return [] }
+        return PlanLayers.ghost(rooms, unified: home.coordinatesAreUnified)
+    }
+
+    private func proceduralModel(_ home: Home) -> Bool {
+        dollhouse || editingRooms(home).contains { $0.flooring != nil } || home.rooms.contains { !$0.placedFurniture.isEmpty }
     }
 
     private func showsPins(_ home: Home) -> Bool {
-        home.coordinatesAreUnified
+        if FloorStack.hasMultipleLevels(home) || dollhouse { return true }
+        return home.coordinatesAreUnified
     }
 
     private func caption(_ home: Home) -> String {
@@ -167,6 +284,13 @@ struct HomeViewer: View {
         }
         if !home.coordinatesAreUnified && home.rooms.count > 1 {
             return "Rooms are side by side because each scan has its own origin. Combine them after scanning through a shared door."
+        }
+        if dollhouse && !showsPlan {
+            return "Dollhouse. Walls fade as you move closer. Drag a catalog item to move it."
+        }
+        if FloorStack.hasMultipleLevels(home) && showsPlan {
+            let name = FloorStack.summaries(in: home).first { $0.level == activeLevel(home) }?.name ?? "This floor"
+            return "\(name). The floor below is a faint ghost, so stairs and shafts stay aligned."
         }
         if showsPlan {
             if showHeat {
@@ -203,6 +327,45 @@ struct HomeViewer: View {
             guard let state = pinBoard.snapshot(for: pin)?.state, let value = Double(state) else { return nil }
             let world = PlanLayers.displayPosition(of: pin, in: layers)
             return HeatSample(x: world.x, z: world.z, value: value)
+        }
+    }
+
+    private func placeFurniture(x: Double, y: Double, z: Double, in home: Home) {
+        guard let catalogItemID else { return }
+        let current = layers(home)
+        let matches = current.filter { layer in
+            let box = FloorPlanGeometry.bounds(of: layer.plan)
+            let localX = x - layer.offset.x
+            let localZ = z - layer.offset.z
+            return localX >= box.min.x - 0.4 && localX <= box.max.x + 0.4
+                && localZ >= box.min.z - 0.4 && localZ <= box.max.z + 0.4
+        }
+        let match = matches.min { lhs, rhs in
+            abs(lhs.offset.y - y) < abs(rhs.offset.y - y)
+        } ?? current.first
+        guard let match else { return }
+        let item = PlacedFurniture.placed(
+            catalogId: catalogItemID,
+            x: x - match.offset.x,
+            z: z - match.offset.z
+        )
+        mutate { _ = $0.upsertFurniture(item, in: match.id) }
+        selectedFurnitureID = item.id
+        placingFurniture = false
+    }
+
+    private func addCopiedFloor() {
+        mutate { home in
+            let copies = home.addCopiedFloor()
+            selectedLevel = copies.first?.level
+        }
+    }
+
+    private func addFootprintFloor() {
+        mutate { home in
+            if let room = home.addFootprintFloor() {
+                selectedLevel = room.level
+            }
         }
     }
 

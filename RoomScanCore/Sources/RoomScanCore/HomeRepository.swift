@@ -229,6 +229,11 @@ public final class HomeRepository {
         }
         room.floorPlan = floorPlan
         room.assets = assets
+        let objectIDs = Set(floorPlan.objects.map(\.id))
+        room.placedFurniture = room.placedFurniture.filter { item in
+            guard let replaced = item.replacesObjectId else { return true }
+            return objectIDs.contains(replaced)
+        }
         home.rooms[index] = room
         if home.structure?.roomIds.contains(roomId) == true {
             clearStructureFiles(homeId: homeId)

@@ -27,9 +27,16 @@ struct FloorPlanCanvas: View {
     var markup: PlanMarkup = .annotated
     /// Full floor-plan viewers draw on charcoal. List thumbnails stay on paper.
     var onCharcoal: Bool = false
+    /// Dim plan of the storey underneath. Not interactive.
+    var ghostLayers: [PlanLayer] = []
+    var selectedFurnitureID: UUID? = nil
+    var placingFurniture: Bool = false
     var onSelectPin: (UUID?) -> Void = { _ in }
     var onMovePin: (UUID, Double, Double) -> Void = { _, _, _ in }
     var onCreate: (Double, Double) -> Void = { _, _ in }
+    var onSelectFurniture: (UUID?) -> Void = { _ in }
+    var onMoveFurniture: (UUID, Double, Double) -> Void = { _, _, _ in }
+    var onCreateFurniture: (Double, Double) -> Void = { _, _ in }
 
     @State private var userScale: Double = 1
     @State private var userOffset = CGSize.zero
@@ -37,11 +44,13 @@ struct FloorPlanCanvas: View {
     @State private var dragMode: DragMode = .idle
     @State private var panOrigin = CGSize.zero
     @State private var movedDisplay: (id: UUID, x: Double, z: Double)?
+    @State private var movedFurniture: (id: UUID, x: Double, z: Double)?
 
     private enum DragMode {
         case idle
         case pan
         case pin(UUID)
+        case furniture(UUID)
     }
 
     private struct Palette {
@@ -75,7 +84,7 @@ struct FloorPlanCanvas: View {
 
     var body: some View {
         GeometryReader { geo in
-            let bounds = PlanLayers.bounds(of: layers)
+            let bounds = PlanLayers.bounds(of: layers + ghostLayers)
             let fitted = PlanProjector.fitting(
                 bounds: bounds,
                 viewWidth: geo.size.width,
@@ -86,6 +95,14 @@ struct FloorPlanCanvas: View {
             let canvas = Canvas { context, size in
                 drawGrid(in: context, projector: projector, bounds: bounds, size: size)
                 drawHeat(in: context, projector: projector, bounds: bounds)
+                var ghost = context
+                ghost.opacity = 0.28
+                for layer in ghostLayers {
+                    drawFloor(layer, in: ghost, projector: projector)
+                    drawObjects(layer, in: ghost, projector: projector, labeled: false)
+                    drawWalls(layer, in: ghost, projector: projector)
+                    drawOpenings(layer, in: ghost, projector: projector)
+                }
                 for layer in layers {
                     drawFloor(layer, in: context, projector: projector)
                 }
@@ -172,8 +189,10 @@ struct FloorPlanCanvas: View {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 if case .idle = dragMode {
-                    if showPins, let pin = hitPin(at: value.startLocation, projector: projector) {
+                    if showPins, !placingFurniture, let pin = hitPin(at: value.startLocation, projector: projector) {
                         dragMode = .pin(pin)
+                    } else if let furniture = hitFurniture(at: value.startLocation, projector: projector) {
+                        dragMode = .furniture(furniture)
                     } else {
                         panOrigin = userOffset
                         dragMode = .pan
@@ -183,6 +202,9 @@ struct FloorPlanCanvas: View {
                 case .pin(let id):
                     let world = projector.world(screenX: value.location.x, screenY: value.location.y)
                     movedDisplay = (id, world.x, world.z)
+                case .furniture(let id):
+                    let world = projector.world(screenX: value.location.x, screenY: value.location.y)
+                    movedFurniture = (id, world.x, world.z)
                 case .pan:
                     userOffset = CGSize(
                         width: panOrigin.width + value.translation.width,
@@ -195,19 +217,30 @@ struct FloorPlanCanvas: View {
             .onEnded { value in
                 let distance = hypot(value.translation.width, value.translation.height)
                 if distance < 8 {
-                    if showPins, let pin = hitPin(at: value.startLocation, projector: projector) {
+                    if showPins, !placingFurniture, let pin = hitPin(at: value.startLocation, projector: projector) {
                         onSelectPin(pin)
+                        onSelectFurniture(nil)
+                    } else if let furniture = hitFurniture(at: value.startLocation, projector: projector) {
+                        onSelectFurniture(furniture)
+                        onSelectPin(nil)
+                    } else if placingFurniture {
+                        let world = projector.world(screenX: value.location.x, screenY: value.location.y)
+                        onCreateFurniture(world.x, world.z)
                     } else if placing {
                         let world = projector.world(screenX: value.location.x, screenY: value.location.y)
                         onCreate(world.x, world.z)
                     } else {
                         onSelectPin(nil)
+                        onSelectFurniture(nil)
                     }
                 } else if let movedDisplay {
                     commitMove(movedDisplay)
+                } else if let movedFurniture {
+                    commitFurniture(movedFurniture)
                 }
                 dragMode = .idle
                 movedDisplay = nil
+                movedFurniture = nil
                 panOrigin = .zero
             }
     }
@@ -215,6 +248,48 @@ struct FloorPlanCanvas: View {
     private func commitMove(_ moved: (id: UUID, x: Double, z: Double)) {
         let offset = layers.first { $0.id == pins.first { $0.id == moved.id }?.roomId }?.offset ?? .zero
         onMovePin(moved.id, moved.x - offset.x, moved.z - offset.z)
+    }
+
+    private func commitFurniture(_ moved: (id: UUID, x: Double, z: Double)) {
+        let offset = layers.first { layer in layer.furniture.contains { $0.id == moved.id } }?.offset ?? .zero
+        onMoveFurniture(moved.id, moved.x - offset.x, moved.z - offset.z)
+    }
+
+    private func hitFurniture(at point: CGPoint, projector: PlanProjector) -> UUID? {
+        for layer in layers.reversed() {
+            for item in layer.furniture.reversed() {
+                let corners = displayedFootprint(item, offset: layer.offset).map {
+                    projector.screen(x: $0.x, z: $0.z)
+                }
+                if polygonContains(point, corners: corners) {
+                    return item.id
+                }
+            }
+        }
+        return nil
+    }
+
+    private func displayedFootprint(_ item: PlacedFurniture, offset: Vec3) -> [Vec3] {
+        var placed = item
+        if let movedFurniture, movedFurniture.id == item.id {
+            placed.position = Vec3(x: movedFurniture.x - offset.x, y: item.position.y, z: movedFurniture.z - offset.z)
+        }
+        return FurnitureGeometry.footprint(of: placed).map { $0 + offset }
+    }
+
+    private func polygonContains(_ point: CGPoint, corners: [(x: Double, y: Double)]) -> Bool {
+        guard corners.count >= 3 else { return false }
+        var inside = false
+        var previous = corners[corners.count - 1]
+        for corner in corners {
+            let crosses = (corner.y > point.y) != (previous.y > point.y)
+            if crosses {
+                let x = (previous.x - corner.x) * (point.y - corner.y) / (previous.y - corner.y) + corner.x
+                if point.x < x { inside.toggle() }
+            }
+            previous = corner
+        }
+        return inside
     }
 
     private func hitPin(at point: CGPoint, projector: PlanProjector) -> UUID? {
@@ -304,8 +379,19 @@ struct FloorPlanCanvas: View {
                 path.addLine(to: point(projector.screen(x: world.x, z: world.z)))
             }
             path.closeSubpath()
-            context.fill(path, with: .color(Theme.roomTint(layer.tintIndex, onCharcoal: onCharcoal)))
+            context.fill(path, with: .color(floorColor(layer)))
         }
+    }
+
+    private func floorColor(_ layer: PlanLayer) -> Color {
+        if layer.ghost {
+            return palette.ink.opacity(onCharcoal ? 0.16 : 0.1)
+        }
+        if let flooring = layer.flooring {
+            return Color(red: flooring.red, green: flooring.green, blue: flooring.blue)
+                .opacity(onCharcoal ? 0.72 : 0.95)
+        }
+        return Theme.roomTint(layer.tintIndex, onCharcoal: onCharcoal)
     }
 
     private func drawObjects(
@@ -314,7 +400,8 @@ struct FloorPlanCanvas: View {
         projector: PlanProjector,
         labeled: Bool
     ) {
-        for object in layer.plan.objects {
+        let hidden = Set(layer.furniture.compactMap(\.replacesObjectId))
+        for object in layer.plan.objects where !hidden.contains(object.id) {
             let corners = object.footprint.map { shifted($0, by: layer.offset) }
             guard corners.count >= 3 else { continue }
             var path = Path()
@@ -351,6 +438,37 @@ struct FloorPlanCanvas: View {
             }
             path.closeSubpath()
             context.stroke(path, with: .color(Theme.warn), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+        }
+        for item in layer.furniture {
+            let corners = displayedFootprint(item, offset: layer.offset)
+            guard corners.count >= 3 else { continue }
+            var path = Path()
+            path.move(to: point(projector.screen(x: corners[0].x, z: corners[0].z)))
+            for corner in corners.dropFirst() {
+                path.addLine(to: point(projector.screen(x: corner.x, z: corner.z)))
+            }
+            path.closeSubpath()
+            let selected = item.id == selectedFurnitureID
+            let fill = palette.accent.opacity(selected ? 0.45 : (onCharcoal ? 0.28 : 0.18))
+            context.fill(path, with: .color(fill))
+            context.stroke(
+                path,
+                with: .color(selected ? palette.accent : palette.ink.opacity(0.8)),
+                style: StrokeStyle(lineWidth: selected ? 2.5 : 1.5)
+            )
+            if labeled, let catalog = FurnitureCatalog.item(id: item.catalogId) {
+                let anchor = corners.reduce(Vec3.zero) { $0 + $1 }
+                let count = Double(corners.count)
+                let center = Vec3(x: anchor.x / count, y: 0, z: anchor.z / count)
+                let screen = point(projector.screen(x: center.x, z: center.z))
+                let size = FurnitureGeometry.worldSize(of: item)
+                context.draw(
+                    Text("\(catalog.name)\n\(ObjectLabels.meters(size.x)) × \(ObjectLabels.meters(size.z)) m")
+                        .font(.caption2)
+                        .foregroundStyle(palette.ink),
+                    at: screen
+                )
+            }
         }
     }
 
