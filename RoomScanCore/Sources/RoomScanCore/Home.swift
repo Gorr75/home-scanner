@@ -131,6 +131,10 @@ public struct Room: Equatable, Identifiable, Sendable {
     /// Camera saved from the 3D view, in this room's scan space.
     /// Omitted from JSON until someone taps Save viewpoint.
     public var viewpoint: CameraViewpoint?
+    /// Picked floor finish. A scan photo still covers this when one is projected.
+    public var flooring: FlooringMaterial?
+    /// Catalog items placed in this room. Nil when the room has none, so older files stay unchanged.
+    public var furniture: [PlacedFurniture]?
 
     public init(
         id: UUID,
@@ -139,7 +143,9 @@ public struct Room: Equatable, Identifiable, Sendable {
         floorPlan: FloorPlan,
         assets: RoomAssets = RoomAssets(),
         floor: Int? = nil,
-        viewpoint: CameraViewpoint? = nil
+        viewpoint: CameraViewpoint? = nil,
+        flooring: FlooringMaterial? = nil,
+        furniture: [PlacedFurniture]? = nil
     ) {
         self.id = id
         self.name = name
@@ -148,12 +154,14 @@ public struct Room: Equatable, Identifiable, Sendable {
         self.assets = assets
         self.floor = floor
         self.viewpoint = viewpoint
+        self.flooring = flooring
+        self.furniture = furniture
     }
 }
 
 extension Room: Codable {
     enum CodingKeys: String, CodingKey {
-        case id, name, createdAt, floorPlan, assets, floor, viewpoint
+        case id, name, createdAt, floorPlan, assets, floor, viewpoint, flooring, furniture
     }
 
     public init(from decoder: Decoder) throws {
@@ -165,6 +173,8 @@ extension Room: Codable {
         assets = try container.decodeIfPresent(RoomAssets.self, forKey: .assets) ?? RoomAssets()
         floor = try container.decodeIfPresent(Int.self, forKey: .floor)
         viewpoint = try container.decodeIfPresent(CameraViewpoint.self, forKey: .viewpoint)
+        flooring = try container.decodeIfPresent(FlooringMaterial.self, forKey: .flooring)
+        furniture = try container.decodeIfPresent([PlacedFurniture].self, forKey: .furniture)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -176,6 +186,8 @@ extension Room: Codable {
         try container.encode(assets, forKey: .assets)
         try container.encodeIfPresent(floor, forKey: .floor)
         try container.encodeIfPresent(viewpoint, forKey: .viewpoint)
+        try container.encodeIfPresent(flooring, forKey: .flooring)
+        try container.encodeIfPresent(furniture, forKey: .furniture)
     }
 }
 

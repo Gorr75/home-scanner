@@ -59,6 +59,27 @@ struct HomeDetailView: View {
                     }
                     roomSections(home)
                     Section {
+                        if home.rooms.isEmpty {
+                            Text("Scan a room, then stack another floor on top of it.")
+                                .foregroundStyle(Theme.secondary)
+                        } else {
+                            Button {
+                                mutate { _ = $0.addCopiedFloor() }
+                            } label: {
+                                Label("New floor from the one below", systemImage: "square.on.square")
+                            }
+                            Button {
+                                mutate { _ = $0.addFootprintFloor() }
+                            } label: {
+                                Label("New floor as one room", systemImage: "square.dashed")
+                            }
+                        }
+                    } header: {
+                        Text("Another floor")
+                    } footer: {
+                        Text("Uses the same floor number the card reads. A copied floor keeps the walls so the next storey lines up. One room uses that floor’s footprint. Open the 3D model and choose Dollhouse to see them stacked.")
+                    }
+                    Section {
                         if capturedCount(home) >= 2 {
                             Button {
                                 combine(home)
@@ -212,6 +233,11 @@ struct HomeDetailView: View {
     }
 
     private func previewLayers(_ home: Home) -> [PlanLayer] {
+        if FloorStack.hasStackedFloors(home) {
+            let level = FloorGrouping.groups(in: home.rooms).first?.level
+            let rooms = home.rooms.filter { $0.floor == level }
+            return PlanLayers.rooms(rooms, unified: home.coordinatesAreUnified)
+        }
         if let overview = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return PlanLayers.overview(overview, name: home.name)
         }
@@ -221,6 +247,10 @@ struct HomeDetailView: View {
     private func layoutCaption(_ home: Home) -> String {
         if let _ = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return "The thumbnail is the aligned shell. Device pins stay in each room's own scan."
+        }
+        if FloorStack.hasStackedFloors(home) {
+            let count = Set(home.rooms.compactMap(\.floor)).count
+            return "\(count) floors. The thumbnail is the lowest one. The 3D model can show the dollhouse."
         }
         if home.coordinatesAreUnified {
             return "Drag to orbit the 3D model. The floor plan is the same measurement, seen from above."
@@ -277,10 +307,11 @@ struct HomeDetailView: View {
         let devices = home.pins(in: room.id).count
         let deviceText = devices == 1 ? "1 device" : "\(devices) devices"
         let source = room.assets.capturedRoom == nil ? "Drawn plan" : "LiDAR scan"
-        if let floor = room.floor {
-            return "\(FloorGrouping.label(for: floor)) · \(source) · \(deviceText)"
-        }
-        return "\(source) · \(deviceText)"
+        let floor = room.floor.map { "\(FloorGrouping.label(for: $0)) · " } ?? ""
+        let finish = room.flooring.map { " · \($0.title)" } ?? ""
+        let pieces = room.placedFurniture.count
+        let furniture = pieces == 0 ? "" : (pieces == 1 ? " · 1 piece" : " · \(pieces) pieces")
+        return "\(floor)\(source) · \(deviceText)\(finish)\(furniture)"
     }
 
     private func capturedCount(_ home: Home) -> Int {

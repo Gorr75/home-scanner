@@ -31,6 +31,11 @@ struct RoomDetailView: View {
     @State private var pendingPlacements: [DevicePin] = []
     @State private var confirmAutoPlace = false
     @State private var previewHour: Double?
+    @State private var placingFurniture = false
+    @State private var catalogItemID: String?
+    @State private var showCatalog = false
+    @State private var replacingObjectID: UUID?
+    @State private var selectedFurnitureID: UUID?
     @State private var captureToken = 0
     @AppStorage(DaylightPreference.enabledKey) private var daylightEnabled = true
     @Environment(\.dismiss) private var dismiss
@@ -72,6 +77,22 @@ struct RoomDetailView: View {
                         objectList(room)
                     case .devices:
                         deviceList
+                    }
+                    if let furniture = room.placedFurniture.first(where: { $0.id == selectedFurnitureID }) {
+                        FurnitureAdjustBar(
+                            title: FurnitureCatalog.item(id: furniture.catalogId)?.name ?? "Furniture",
+                            onCharcoal: viewing,
+                            onRotate: { delta in
+                                mutate { $0.rotateFurniture(id: furniture.id, by: delta) }
+                            },
+                            onScale: { factor in
+                                mutate { $0.scaleFurniture(id: furniture.id, by: factor) }
+                            },
+                            onDelete: {
+                                mutate { $0.removeFurniture(id: furniture.id) }
+                                selectedFurnitureID = nil
+                            }
+                        )
                     }
                     if let selected = pins.first(where: { $0.id == selectedPinID }) {
                         selectionBar(selected)
@@ -152,6 +173,24 @@ struct RoomDetailView: View {
         .sheet(isPresented: $texturing) {
             TextureStudioView(homeID: homeID, roomID: roomID)
         }
+        .sheet(isPresented: $showCatalog) {
+            FurnitureCatalogSheet(suggestedID: suggestedCatalogID) { item in
+                if let replacingObjectID {
+                    mutate { home in
+                        if let placed = home.replaceObject(id: replacingObjectID, in: roomID, with: item.id) {
+                            selectedFurnitureID = placed.id
+                        }
+                    }
+                    self.replacingObjectID = nil
+                    placingFurniture = false
+                } else {
+                    catalogItemID = item.id
+                    placingFurniture = true
+                    placing = false
+                    if page == .devices || page == .objects { page = .plan }
+                }
+            }
+        }
         .overlay {
             if sending {
                 ProgressView("Sending to Home Assistant")
@@ -172,7 +211,7 @@ struct RoomDetailView: View {
             )
             RoomModelView(
                 layers: PlanLayers.single(room),
-                usdzURL: store.roomModelURL(in: home, room: room),
+                usdzURL: room.flooring == nil ? store.roomModelURL(in: home, room: room) : nil,
                 pins: pins,
                 showPins: true,
                 looksByEntity: pinBoard.looksByEntity(for: pins),
@@ -186,6 +225,18 @@ struct RoomDetailView: View {
                 onRenderedUSDZ: { renderedUSDZ = $0 },
                 surfacePaints: TexturePaints.forRoom(room, homeId: homeID, store: store),
                 daylight: tint,
+                selectedFurnitureID: selectedFurnitureID,
+                placingFurniture: placingFurniture,
+                onSelectFurniture: { id in
+                    selectedFurnitureID = id
+                    if id != nil { selectedPinID = nil }
+                },
+                onMoveFurniture: { id, point in
+                    moveFurniture(id, x: point.x, z: point.z)
+                },
+                onPlaceFurniture: { point in
+                    placeFurniture(x: point.x, z: point.z, in: room.id)
+                },
                 savedViewpoint: room.viewpoint,
                 captureToken: captureToken,
                 onCaptureViewpoint: { saveViewpoint($0) }
@@ -228,34 +279,98 @@ struct RoomDetailView: View {
             onMovePin: { id, x, z in move(id, x: x, z: z) },
             onCreate: { x, z in
                 create(in: roomID, x: x, z: z, y: placeKind.defaultHeight)
+            },
+            selectedFurnitureID: selectedFurnitureID,
+            placingFurniture: placingFurniture,
+            onSelectFurniture: { id in
+                selectedFurnitureID = id
+                if id != nil { selectedPinID = nil }
+            },
+            onMoveFurniture: { id, x, z in
+                moveFurniture(id, x: x, z: z)
+            },
+            onCreateFurniture: { x, z in
+                placeFurniture(x: x, z: z, in: room.id)
             }
         )
     }
 
     private func objectList(_ room: Room) -> some View {
         List {
-            if room.floorPlan.objects.isEmpty {
+            Section {
+                Button {
+                    replacingObjectID = nil
+                    showCatalog = true
+                } label: {
+                    Label("Add from the catalog", systemImage: "plus")
+                }
+            } footer: {
+                Text(flooringCaption(room))
+            }
+            if room.placedFurniture.isEmpty && room.floorPlan.objects.isEmpty {
                 ContentUnavailableView(
-                    "No furniture recognized",
+                    "No furniture yet",
                     systemImage: "cube",
-                    description: Text("RoomPlan names sofas, tables, and appliances when the scan can see them.")
+                    description: Text("Add a sofa, table, lamp, or plant. A RoomPlan box can be replaced with a catalog item.")
                 )
             }
-            ForEach(room.floorPlan.objects) { object in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(ObjectLabels.title(for: object.category))
-                    Text(ObjectLabels.size(object))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(Theme.secondary)
-                    if let confidence = object.confidence {
-                        Text(confidence.rawValue.capitalized)
-                            .font(.caption2)
-                            .foregroundStyle(Theme.secondary)
+            if !room.placedFurniture.isEmpty {
+                Section("Placed") {
+                    ForEach(room.placedFurniture) { item in
+                        Button {
+                            selectedFurnitureID = item.id
+                            page = .plan
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(FurnitureCatalog.item(id: item.catalogId)?.name ?? item.catalogId)
+                                    .foregroundStyle(Theme.ink)
+                                Text(item.replacesObjectId == nil ? "Catalog item" : "Replaces a scan box")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            if !room.floorPlan.objects.isEmpty {
+                Section("Recognised by RoomPlan") {
+                    ForEach(room.floorPlan.objects) { object in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(ObjectLabels.title(for: object.category))
+                            Text(ObjectLabels.size(object))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(Theme.secondary)
+                            if room.replacedObjectIDs.contains(object.id) {
+                                Text("Replaced by a catalog item")
+                                    .font(.caption2)
+                                    .foregroundStyle(Theme.accent)
+                            } else {
+                                Button("Replace with a catalog item") {
+                                    replacingObjectID = object.id
+                                    showCatalog = true
+                                }
+                                .font(.caption)
+                            }
+                        }
                     }
                 }
             }
         }
         .scrollContentBackground(.hidden)
+    }
+
+    private var suggestedCatalogID: String? {
+        guard let replacingObjectID,
+              let category = room?.floorPlan.objects.first(where: { $0.id == replacingObjectID })?.category else {
+            return nil
+        }
+        return FurnitureCatalog.match(for: category)?.id
+    }
+
+    private func flooringCaption(_ room: Room) -> String {
+        let finish = room.flooring?.title ?? "the scan default"
+        return "Flooring is \(finish). A photo from the scan still covers the floor when one is saved."
     }
 
     private var deviceList: some View {
@@ -329,6 +444,10 @@ struct RoomDetailView: View {
     }
 
     private func captionText(_ room: Room) -> String {
+        if placingFurniture {
+            let name = catalogItemID.flatMap { FurnitureCatalog.item(id: $0)?.name } ?? "furniture"
+            return "Tap the plan or the model to place a \(name.lowercased())."
+        }
         if placing { return "Tap a surface to place a \(placeKind.label.lowercased())." }
         if renderedUSDZ { return "Tap a light, switch, or fan to toggle it · Drag to orbit" }
         if room.assets.usdz == nil {
@@ -365,7 +484,24 @@ struct RoomDetailView: View {
                 }
                 Button(placing ? "Stop placing" : "Place on the plan") {
                     placing.toggle()
-                    if placing { page = page == .devices ? .plan : page }
+                    if placing {
+                        placingFurniture = false
+                        page = page == .devices ? .plan : page
+                    }
+                }
+                Button(placingFurniture ? "Stop placing furniture" : "Add furniture") {
+                    if placingFurniture {
+                        placingFurniture = false
+                    } else {
+                        replacingObjectID = nil
+                        showCatalog = true
+                    }
+                }
+                Menu("Flooring") {
+                    Button("Scan default") { setFlooring(nil) }
+                    ForEach(FlooringMaterial.allCases, id: \.self) { material in
+                        Button(material.title) { setFlooring(material) }
+                    }
                 }
                 Button("Add \(placeKind.label.lowercased()) at the center") {
                     addAtCenter()
@@ -464,6 +600,22 @@ struct RoomDetailView: View {
         selectedPinID = pin.id
         editor = pin
         placing = false
+    }
+
+    private func placeFurniture(x: Double, z: Double, in roomId: UUID) {
+        guard let catalogItemID else { return }
+        let item = PlacedFurniture.placed(catalogId: catalogItemID, x: x, z: z)
+        mutate { _ = $0.upsertFurniture(item, in: roomId) }
+        selectedFurnitureID = item.id
+        placingFurniture = false
+    }
+
+    private func moveFurniture(_ id: UUID, x: Double, z: Double) {
+        mutate { $0.moveFurniture(id: id, x: x, z: z) }
+    }
+
+    private func setFlooring(_ material: FlooringMaterial?) {
+        mutate { $0.setFlooring(material, roomID: roomID) }
     }
 
     private func move(_ id: UUID, x: Double, z: Double) {

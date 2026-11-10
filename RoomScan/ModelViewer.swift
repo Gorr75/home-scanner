@@ -27,6 +27,13 @@ struct RoomModelView: UIViewRepresentable {
     var surfacePaints: [SurfacePaint] = []
     /// Nil keeps the neutral studio lights. A value tints the room and lets on-lights cast colour.
     var daylight: DaylightTint? = nil
+    /// Stacked storeys. Walls fade as the camera gets close.
+    var dollhouse: Bool = false
+    var selectedFurnitureID: UUID? = nil
+    var placingFurniture: Bool = false
+    var onSelectFurniture: (UUID?) -> Void = { _ in }
+    var onMoveFurniture: (UUID, Vec3) -> Void = { _, _ in }
+    var onPlaceFurniture: (Vec3) -> Void = { _ in }
     /// When set, the room opens on this camera instead of the default framing.
     var savedViewpoint: CameraViewpoint? = nil
     /// Increment to read the current camera into `onCaptureViewpoint`.
@@ -48,14 +55,27 @@ struct RoomModelView: UIViewRepresentable {
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
         tap.cancelsTouchesInView = false
         view.addGestureRecognizer(tap)
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.draggedFurniture(_:)))
+        pan.delegate = context.coordinator
+        pan.cancelsTouchesInView = false
+        view.addGestureRecognizer(pan)
+        context.coordinator.furniturePan = pan
+        view.delegate = context.coordinator
         return view
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
         context.coordinator.parent = self
         view.autoenablesDefaultLighting = false
+        view.delegate = context.coordinator
+        if let pan = context.coordinator.furniturePan {
+            for gesture in view.gestureRecognizers ?? [] where gesture !== pan && gesture is UIPanGestureRecognizer {
+                gesture.require(toFail: pan)
+            }
+        }
         let urlKey = usdzURL?.path
-        let geometryChanged = context.coordinator.layers != layers || context.coordinator.urlKey != urlKey
+        let signature = Self.structureSignature(layers)
+        let geometryChanged = context.coordinator.signature != signature || context.coordinator.urlKey != urlKey
         if geometryChanged || view.scene == nil {
             let scene = SCNScene()
             scene.background.contents = view.backgroundColor
@@ -69,6 +89,7 @@ struct RoomModelView: UIViewRepresentable {
             }
             view.scene = scene
             context.coordinator.layers = layers
+            context.coordinator.signature = signature
             context.coordinator.urlKey = urlKey
             context.coordinator.renderedUSDZ = usedUSDZ
             applyOpeningCamera(in: view, scene: scene)
@@ -102,7 +123,17 @@ struct RoomModelView: UIViewRepresentable {
         if let scene = view.scene {
             applyLighting(to: scene, in: view)
             replacePins(in: scene)
+            replaceFurniture(in: scene)
             replaceTextures(in: scene)
+        }
+    }
+
+    /// Walls, floors, and openings. Furniture is redrawn on its own so a drag does not reset the camera.
+    private static func structureSignature(_ layers: [PlanLayer]) -> [PlanLayer] {
+        layers.map { layer in
+            var copy = layer
+            copy.furniture = []
+            return copy
         }
     }
 
@@ -192,7 +223,7 @@ struct RoomModelView: UIViewRepresentable {
     }
 
     private func addFloors(_ layer: PlanLayer, to scene: SCNScene) {
-        let color = Self.floorColors[abs(layer.tintIndex) % Self.floorColors.count]
+            let color = floorColor(for: layer)
         for floor in layer.plan.floors where floor.corners.count >= 3 {
             let path = UIBezierPath()
             let first = floor.corners[0]
@@ -205,7 +236,7 @@ struct RoomModelView: UIViewRepresentable {
             shape.materials = [material(color, roughness: 0.9)]
             let node = SCNNode(geometry: shape)
             node.eulerAngles.x = -.pi / 2
-            node.position.y = -0.02
+            node.position.y = Float(layer.offset.y) - 0.02
             scene.rootNode.addChildNode(node)
         }
     }
@@ -226,6 +257,7 @@ struct RoomModelView: UIViewRepresentable {
             )
             box.materials = [material(Self.wallColor)]
             let node = SCNNode(geometry: box)
+            node.name = "dollhouse-wall"
             node.position = SCNVector3(
                 Float((start.x + end.x) / 2),
                 Float(start.y + wall.height / 2),
@@ -261,7 +293,8 @@ struct RoomModelView: UIViewRepresentable {
     }
 
     private func addObjects(_ layer: PlanLayer, to scene: SCNScene) {
-        for object in layer.plan.objects {
+        let hidden = Set(layer.furniture.compactMap(\.replacesObjectId))
+        for object in layer.plan.objects where !hidden.contains(object.id) {
             let box = SCNBox(
                 width: CGFloat(max(object.dimensions.x, 0.05)),
                 height: CGFloat(max(object.dimensions.y, 0.05)),
@@ -275,6 +308,94 @@ struct RoomModelView: UIViewRepresentable {
             node.eulerAngles.y = -Float(object.yaw)
             scene.rootNode.addChildNode(node)
         }
+    }
+
+    private func floorColor(for layer: PlanLayer) -> UIColor {
+        if let flooring = layer.flooring {
+            return UIColor(red: flooring.red, green: flooring.green, blue: flooring.blue, alpha: 1)
+        }
+        return Self.floorColors[abs(layer.tintIndex) % Self.floorColors.count]
+    }
+
+    private func replaceFurniture(in scene: SCNScene) {
+        scene.rootNode.childNodes
+            .filter { $0.name?.hasPrefix("furniture:") == true }
+            .forEach { $0.removeFromParentNode() }
+        for layer in layers {
+            for item in layer.furniture {
+                let root = SCNNode()
+                root.name = "furniture:\(item.id.uuidString)"
+                let origin = item.position + layer.offset
+                root.position = SCNVector3(Float(origin.x), Float(origin.y), Float(origin.z))
+                root.eulerAngles.y = -Float(item.yaw)
+                let parts = FurnitureCatalog.item(id: item.catalogId)?.parts ?? []
+                if parts.isEmpty {
+                    root.addChildNode(partNode(
+                        shape: .box,
+                        center: Vec3(x: 0, y: 0.25, z: 0),
+                        size: Vec3(x: 0.5, y: 0.5, z: 0.5),
+                        material: FurnitureMaterial(name: "missing", red: 0.55, green: 0.46, blue: 0.36)
+                    ))
+                } else {
+                    for part in parts {
+                        let center = Vec3(
+                            x: part.center.x * item.scale.x,
+                            y: part.center.y * item.scale.y,
+                            z: part.center.z * item.scale.z
+                        )
+                        let size: Vec3
+                        switch part.shape {
+                        case .box:
+                            size = Vec3(
+                                x: part.size.x * item.scale.x,
+                                y: part.size.y * item.scale.y,
+                                z: part.size.z * item.scale.z
+                            )
+                        case .cylinder:
+                            let diameter = part.size.x * max(item.scale.x, item.scale.z)
+                            size = Vec3(x: diameter, y: part.size.y * item.scale.y, z: diameter)
+                        }
+                        root.addChildNode(partNode(shape: part.shape, center: center, size: size, material: part.material))
+                    }
+                }
+                if item.id == selectedFurnitureID {
+                    let size = FurnitureGeometry.worldSize(of: item)
+                    let ring = SCNBox(width: CGFloat(size.x + 0.04), height: 0.02, length: CGFloat(size.z + 0.04), chamferRadius: 0)
+                    let ringMaterial = material(UIColor(Theme.accentOnCharcoal), roughness: 0.4)
+                    ringMaterial.emission.contents = UIColor(Theme.accentOnCharcoal)
+                    ring.materials = [ringMaterial]
+                    let ringNode = SCNNode(geometry: ring)
+                    ringNode.position = SCNVector3(0, 0.02, 0)
+                    root.addChildNode(ringNode)
+                }
+                scene.rootNode.addChildNode(root)
+            }
+        }
+    }
+
+    private func partNode(shape: FurnitureShape, center: Vec3, size: Vec3, material: FurnitureMaterial) -> SCNNode {
+        let geometry: SCNGeometry
+        switch shape {
+        case .box:
+            geometry = SCNBox(
+                width: CGFloat(max(size.x, 0.01)),
+                height: CGFloat(max(size.y, 0.01)),
+                length: CGFloat(max(size.z, 0.01)),
+                chamferRadius: 0.005
+            )
+        case .cylinder:
+            geometry = SCNCylinder(radius: CGFloat(max(size.x, 0.01) / 2), height: CGFloat(max(size.y, 0.01)))
+        }
+        let surface = self.material(
+            UIColor(red: material.red, green: material.green, blue: material.blue, alpha: material.alpha),
+            roughness: CGFloat(material.roughness),
+            alpha: CGFloat(material.alpha)
+        )
+        surface.metalness.contents = material.metallic
+        geometry.materials = [surface]
+        let node = SCNNode(geometry: geometry)
+        node.position = SCNVector3(Float(center.x), Float(center.y), Float(center.z))
+        return node
     }
 
     private func replacePins(in scene: SCNScene) {
@@ -489,36 +610,152 @@ struct RoomModelView: UIViewRepresentable {
         UIColor(red: 0.86, green: 0.88, blue: 0.91, alpha: 1)
     ]
 
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate, SCNSceneRendererDelegate {
         var parent: RoomModelView
         var layers: [PlanLayer] = []
+        var signature: [PlanLayer] = []
         var urlKey: String?
         var cameraToken = -1
         var appliedViewpoint: CameraViewpoint?
         var lastCaptureToken = 0
         var renderedUSDZ = false
+        var furniturePan: UIPanGestureRecognizer?
+        private var draggingFurniture: UUID?
 
         init(parent: RoomModelView) {
             self.parent = parent
         }
 
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view as? SCNView else {
+                return true
+            }
+            return furnitureID(at: pan.location(in: view), in: view) != nil
+        }
+
+        func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
+            guard let pointOfView = renderer.pointOfView else { return }
+            let camera = pointOfView.presentation.worldPosition
+            renderer.scene?.rootNode.enumerateChildNodes { node, _ in
+                guard node.name == "dollhouse-wall", let material = node.geometry?.firstMaterial else { return }
+                guard parent.dollhouse else {
+                    material.transparency = 1
+                    material.writesToDepthBuffer = true
+                    return
+                }
+                let position = node.presentation.worldPosition
+                let dx = camera.x - position.x
+                let dy = camera.y - position.y
+                let dz = camera.z - position.z
+                let distance = (dx * dx + dy * dy + dz * dz).squareRoot()
+                let near: Float = 1.5
+                let far: Float = 4.0
+                let fade = min(1, max(0, (distance - near) / (far - near)))
+                material.transparency = CGFloat(fade)
+                material.writesToDepthBuffer = fade > 0.85
+            }
+        }
+
         @objc func tapped(_ gesture: UITapGestureRecognizer) {
             guard let view = gesture.view as? SCNView else { return }
             let point = gesture.location(in: view)
-            let hits = view.hitTest(point, options: nil)
+            let hits = view.hitTest(point, options: [
+                SCNHitTestOption.searchMode: SCNHitTestSearchMode.all.rawValue
+            ])
             if let pin = hits.lazy.compactMap({ self.pinID(in: $0.node) }).first {
                 parent.onSelectPin(pin)
+                parent.onSelectFurniture(nil)
                 parent.onTogglePin(pin)
+                return
+            }
+            if let furniture = hits.lazy.compactMap({ self.furnitureID(in: $0.node) }).first {
+                parent.onSelectFurniture(furniture)
+                parent.onSelectPin(nil)
+                return
+            }
+            if parent.placingFurniture, let hit = hits.first {
+                let location = hit.worldCoordinates
+                parent.onPlaceFurniture(Vec3(x: Double(location.x), y: Double(location.y), z: Double(location.z)))
                 return
             }
             guard parent.placementEnabled, let hit = hits.first(where: { self.pinID(in: $0.node) == nil }) else {
                 if !parent.placementEnabled {
                     parent.onSelectPin(nil)
+                    parent.onSelectFurniture(nil)
                 }
                 return
             }
             let location = hit.worldCoordinates
             parent.onPlace(Vec3(x: Double(location.x), y: Double(location.y), z: Double(location.z)))
+        }
+
+        @objc func draggedFurniture(_ gesture: UIPanGestureRecognizer) {
+            guard let view = gesture.view as? SCNView else { return }
+            let point = gesture.location(in: view)
+            switch gesture.state {
+            case .began:
+                guard let id = furnitureID(at: point, in: view) else { return }
+                draggingFurniture = id
+                parent.onSelectFurniture(id)
+                parent.onSelectPin(nil)
+                view.allowsCameraControl = false
+            case .changed:
+                guard let id = draggingFurniture,
+                      let item = parent.layers.lazy.compactMap({ layer in
+                          layer.furniture.first { $0.id == id }.map { (layer, $0) }
+                      }).first else { return }
+                let floorY = Float(item.1.position.y + item.0.offset.y)
+                guard let world = floorPoint(in: view, screen: point, y: floorY) else { return }
+                if let node = view.scene?.rootNode.childNode(withName: "furniture:\(id.uuidString)", recursively: false) {
+                    node.position.x = world.x
+                    node.position.z = world.z
+                }
+            case .ended:
+                if let id = draggingFurniture,
+                   let node = view.scene?.rootNode.childNode(withName: "furniture:\(id.uuidString)", recursively: false) {
+                    parent.onMoveFurniture(id, Vec3(
+                        x: Double(node.position.x),
+                        y: Double(node.position.y),
+                        z: Double(node.position.z)
+                    ))
+                }
+                draggingFurniture = nil
+                view.allowsCameraControl = true
+            case .cancelled, .failed:
+                draggingFurniture = nil
+                view.allowsCameraControl = true
+            default:
+                break
+            }
+        }
+
+        private func floorPoint(in view: SCNView, screen: CGPoint, y: Float) -> SCNVector3? {
+            let near = view.unprojectPoint(SCNVector3(Float(screen.x), Float(screen.y), 0))
+            let far = view.unprojectPoint(SCNVector3(Float(screen.x), Float(screen.y), 1))
+            let dy = far.y - near.y
+            guard abs(dy) > 0.0001 else { return nil }
+            let t = (y - near.y) / dy
+            guard t.isFinite else { return nil }
+            return SCNVector3(near.x + (far.x - near.x) * t, y, near.z + (far.z - near.z) * t)
+        }
+
+        private func furnitureID(at point: CGPoint, in view: SCNView) -> UUID? {
+            let hits = view.hitTest(point, options: [
+                SCNHitTestOption.searchMode: SCNHitTestSearchMode.all.rawValue
+            ])
+            return hits.lazy.compactMap { furnitureID(in: $0.node) }.first
+        }
+
+        private func furnitureID(in node: SCNNode) -> UUID? {
+            var current: SCNNode? = node
+            while let cursor = current {
+                if let name = cursor.name, name.hasPrefix("furniture:"),
+                   let id = UUID(uuidString: String(name.dropFirst("furniture:".count))) {
+                    return id
+                }
+                current = cursor.parent
+            }
+            return nil
         }
 
         private func pinID(in node: SCNNode) -> UUID? {

@@ -6,7 +6,7 @@ Phone upload to Home Assistant is live. The app reads entity state over REST and
 
 The main purpose is exporting rooms and layouts to Home Assistant. The app stays fully useful on its own. Scanning, measuring, annotations, inventory, editing, furniture, walkthrough, and checklists work with no Home Assistant connection. Home Assistant adds live state, device control, and the Lovelace dashboard on top. Maintenance checklists export to Home Assistant to-dos when the phone is connected, and they work as in-app reminders otherwise.
 
-The Lovelace card, live light colour in the 3D view, placing pins from areas, daylight by time of day, and the v0.4 floor switcher, saved viewpoints, day and night plates, and photo-real tablet card are in the app. The furniture catalog is in progress, with the v0.5 plan editor and the multi-floor dollhouse. Sweet Home 3D export is deferred. Next, After that, and Later follow.
+The Lovelace card, live light colour in the 3D view, placing pins from areas, daylight by time of day, the v0.4 floor switcher, saved viewpoints, day and night plates, the photo-real tablet card, the furniture catalog, and the multi-floor dollhouse are in the app. The v0.5 plan editor is in progress. Sweet Home 3D export is deferred. Next, After that, and Later follow.
 
 ## Now
 
@@ -26,17 +26,14 @@ Done:
 
 ## v0.4
 
-In progress. v0.4 is the wall-tablet card and the path for people who furnish outside RoomPlan.
+v0.4 is the wall-tablet card and the path for people who furnish outside RoomPlan.
 
 Done:
 
 - **Floor switcher and a saved viewpoint per room.** A room can store an optional floor (a level, omitted until you set one) and a camera saved from the 3D view. The home screen groups rooms by that floor. **Save viewpoint** writes the current camera. The upload includes both in `layout.json`. The card shows a floor picker and opens each room on its saved camera.
 - **Day and night plates switched by `sun.sun`.** The photo card uses the same daylight mapping as the 3D view. The `night` phase shows the night plates. Sunrise, sunset, and day show the day plates.
 - **Photo-real card.** Photo mode composites a lights-off base plate and one plate per light with `mix-blend-mode: screen`. Opacity and colour follow the live Home Assistant brightness and colour. Tapping a light's region toggles that entity. The app renders the plates from the saved viewpoint (all lights off, then one light at a time, day and night) and uploads them to `/local/home_scanner/<id>/plates/` with `plates/manifest.json`. Plan and 3D stay available. `viewer.html` is unchanged.
-
-Still open:
-
-- **Placeable furniture and decor.** RoomPlan boxes are recognition, and a catalog with move, rotate, and scale is how a person furnishes after the scan.
+- **Placeable furniture and decor.** A catalog of sofas, chairs, tables, beds, shelves, lamps, plants, rugs, a television, and a few more drops into the 3D view and the floor plan. Each item moves, rotates, and scales, and it can replace a RoomPlan box. Placements live on the room and travel in `layout.json`, `model.glb`, and `model.usdz`.
 
 **Deferred.** Sweet Home 3D export (`.sh3d`). People who already use that floor-plan plugin can furnish there and keep its picture-elements workflow.
 
@@ -52,11 +49,7 @@ In progress. v0.5 is a plan editor for geometry after the scan. RoomPlan still m
 
 ## Multi-floor dollhouse
 
-In progress. More than one floor is a stack of plans you edit together, not another RoomPlan pass. Walls still fade as you approach.
-
-- **Floor tabs and a faint ghost of the floor below.** The plan you are editing sits on top of a dim copy of the floor underneath, so stairs and shafts stay aligned.
-- **A new floor starts from the one underneath.** Copy the floor below, or start from one big room using that footprint, instead of an empty canvas.
-- **A flooring material for each room.** A simple picker is enough. Photo textures stay for real surfaces captured in the scan.
+Done. Floors stack in one home, using the same optional `floor` integer the card already reads. A missing `floor` means the room is not on a storey yet. The plan has floor tabs and a faint ghost of the floor below. A new floor copies the one underneath, or starts as one room from that footprint, and writes the next `floor` index. Each room has a flooring material, and a scan photo still covers the floor when one was captured. In the dollhouse, walls fade as the camera approaches.
 
 ## Next
 
