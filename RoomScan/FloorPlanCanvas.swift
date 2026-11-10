@@ -246,13 +246,15 @@ struct FloorPlanCanvas: View {
     }
 
     private func commitMove(_ moved: (id: UUID, x: Double, z: Double)) {
-        let offset = layers.first { $0.id == pins.first { $0.id == moved.id }?.roomId }?.offset ?? .zero
-        onMovePin(moved.id, moved.x - offset.x, moved.z - offset.z)
+        guard let pin = pins.first(where: { $0.id == moved.id }) else { return }
+        let stored = PlanLayers.storedXZ(displayX: moved.x, displayZ: moved.z, of: pin, in: layers)
+        onMovePin(moved.id, stored.x, stored.z)
     }
 
     private func commitFurniture(_ moved: (id: UUID, x: Double, z: Double)) {
-        let offset = layers.first { layer in layer.furniture.contains { $0.id == moved.id } }?.offset ?? .zero
-        onMoveFurniture(moved.id, moved.x - offset.x, moved.z - offset.z)
+        guard let layer = layers.first(where: { $0.furniture.contains { $0.id == moved.id } }) else { return }
+        let stored = PlanLayers.storedPoint(Vec3(x: moved.x, y: 0, z: moved.z), in: layer)
+        onMoveFurniture(moved.id, stored.x, stored.z)
     }
 
     private func hitFurniture(at point: CGPoint, projector: PlanProjector) -> UUID? {

@@ -82,7 +82,7 @@ Coordinate notes that matter:
 
 - Y is up. Units are meters. This matches ARKit and USDZ.
 - A single scan, and the sample apartment, keep rooms and pins in one space.
-- A real combine writes an aligned shell. Pins stay in each room's original scan, because `StructureBuilder` does not report a per-pin transform. The app says so on the combined plan.
+- A real combine writes an aligned shell, then checks room footprints. A room that only misses its shared wall is snapped onto that wall. Two scans of the same room are flagged so one can be kept. Pins use that same move, so they stay in the room that moved.
 
 ## Home Assistant
 
@@ -135,7 +135,7 @@ Added on top of that:
 
 ## Limits
 
-- A real combine still does not move existing pins into the merged coordinate space. `structure.coordinates_are_unified` stays false. Use a room folder when a card should draw pins on that room's model.
+- Each room file stays in that scan's coordinates. The home shell stores a placement per room and draws pins through it. `structure.coordinates_are_unified` stays false for a real combine. Use a room folder when a card should draw that room alone.
 - `model.glb` is built from the measured floor plan (walls, floors, openings, objects). It is not a conversion of the RoomPlan USDZ. The USDZ is uploaded beside it when the scan has one.
 - The websocket and the upload need a reachable Home Assistant. This repo's tests use a scripted HTTP transport, not a live server.
 - The PDF is a measured drawing (area, lengths, a wall sketch). It is not a snapshot of the SwiftUI canvas.

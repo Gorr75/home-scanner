@@ -178,22 +178,32 @@ public final class HomeRepository {
         overview: FloorPlan,
         roomIds: [UUID],
         coordinatesAreUnified: Bool = false,
+        placements: [RoomPlacement]? = nil,
+        overlaps: [RoomOverlap]? = nil,
+        shellWasRebuilt: Bool = false,
         now: Date = Date()
     ) throws -> Home {
         guard var home = homes.first(where: { $0.id == homeId }) else {
             throw HomeRepositoryError.missingHome(homeId)
         }
         let jsonRelative = "structure.captured.json"
-        let usdzRelative = "structure.usdz"
         try write(capturedJSON, homeId: homeId, relative: jsonRelative)
-        try write(usdz, homeId: homeId, relative: usdzRelative)
+        let usdzRelative = "structure.usdz"
+        if shellWasRebuilt {
+            try? removeFile(homeId: homeId, relative: usdzRelative)
+        } else {
+            try write(usdz, homeId: homeId, relative: usdzRelative)
+        }
         home.structure = StructureLink(
             builtAt: now,
             roomIds: roomIds,
             coordinatesAreUnified: coordinatesAreUnified,
-            usdz: usdzRelative,
+            usdz: shellWasRebuilt ? nil : usdzRelative,
             capturedStructure: jsonRelative,
-            overviewFloorPlan: overview
+            overviewFloorPlan: overview,
+            placements: placements,
+            overlaps: overlaps,
+            shellWasRebuilt: shellWasRebuilt ? true : nil
         )
         return try save(home, now: now)
     }

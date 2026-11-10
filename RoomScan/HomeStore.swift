@@ -113,7 +113,8 @@ final class HomeStore {
         capturedJSON: Data,
         usdz: Data,
         overview: FloorPlan,
-        roomIds: [UUID]
+        roomIds: [UUID],
+        alignment: RoomAlignmentResult = .none
     ) throws -> Home {
         let home = try repository.attachStructure(
             homeId: homeId,
@@ -121,7 +122,10 @@ final class HomeStore {
             usdz: usdz,
             overview: overview,
             roomIds: roomIds,
-            coordinatesAreUnified: false
+            coordinatesAreUnified: false,
+            placements: alignment.placements.isEmpty ? nil : alignment.placements,
+            overlaps: alignment.overlaps.isEmpty ? nil : alignment.overlaps,
+            shellWasRebuilt: alignment.hidesMergedModel
         )
         refresh()
         return home

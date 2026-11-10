@@ -73,7 +73,7 @@ struct HomeViewer: View {
             if let home {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        if home.coordinatesAreUnified {
+                        if PlanLayers.showsDevicePins(home) {
                             Picker("Device type", selection: $placeKind) {
                                 ForEach(DeviceKind.allCases, id: \.self) { kind in
                                     Label(kind.label, systemImage: kind.symbolName).tag(kind)
@@ -100,7 +100,7 @@ struct HomeViewer: View {
                             Button("New floor from the one below") { addCopiedFloor() }
                             Button("New floor as one room") { addFootprintFloor() }
                         }
-                        if showsPlan, home.coordinatesAreUnified {
+                        if showsPlan, PlanLayers.showsDevicePins(home) {
                             Button(showHeat ? "Hide sensor heatmap" : "Show sensor heatmap") {
                                 showHeat.toggle()
                             }
@@ -116,13 +116,16 @@ struct HomeViewer: View {
         }
         .safeAreaInset(edge: .bottom) {
             if let home {
-                Text(caption(home))
-                    .font(.footnote)
-                    .foregroundStyle(Theme.mist)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Theme.charcoal)
+                VStack(alignment: .leading, spacing: 8) {
+                    overlapChoices(home)
+                    Text(caption(home))
+                        .font(.footnote)
+                        .foregroundStyle(Theme.mist)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Theme.charcoal)
             }
         }
         .task(id: home?.pins.map { "\($0.id.uuidString)|\($0.entityId ?? "")" }.joined(separator: ",") ?? "") {
@@ -198,7 +201,7 @@ struct HomeViewer: View {
                 )
                 RoomModelView(
                     layers: layers(home),
-                    usdzURL: proceduralModel(home) ? nil : store.structureModelURL(in: home),
+                    usdzURL: shellURL(home),
                     pins: home.pins,
                     showPins: showsPins(home),
                     looksByEntity: pinBoard.looksByEntity(for: home.pins),
@@ -223,8 +226,11 @@ struct HomeViewer: View {
                         if id != nil { selectedPinID = nil }
                     },
                     onMoveFurniture: { id, point in
-                        let offset = layers(home).first { $0.furniture.contains { $0.id == id } }?.offset ?? .zero
-                        mutate { $0.moveFurniture(id: id, x: point.x - offset.x, z: point.z - offset.z) }
+                        let layer = layers(home).first { $0.furniture.contains { $0.id == id } }
+                        let stored = layer.map {
+                            PlanLayers.storedPoint(Vec3(x: point.x, y: 0, z: point.z), in: $0)
+                        } ?? Vec3(x: point.x, y: 0, z: point.z)
+                        mutate { $0.moveFurniture(id: id, x: stored.x, z: stored.z) }
                     },
                     onPlaceFurniture: { point in
                         placeFurniture(x: point.x, y: point.y, z: point.z, in: home)
@@ -265,7 +271,12 @@ struct HomeViewer: View {
 
     private func layers(_ home: Home) -> [PlanLayer] {
         let rooms = editingRooms(home)
-        if dollhouse && !showsPlan {
+        let stacked = dollhouse && !showsPlan
+        let applied = RoomAlignment.applied(to: home)
+        if applied.changesDisplay {
+            return PlanLayers.aligned(rooms, applied: applied, stacked: stacked)
+        }
+        if stacked {
             return PlanLayers.rooms(rooms, unified: home.coordinatesAreUnified, stacked: true)
         }
         if FloorStack.hasStackedFloors(home) || home.rooms.contains(where: { !$0.placedFurniture.isEmpty || $0.flooring != nil }) {
@@ -290,10 +301,27 @@ struct HomeViewer: View {
 
     private func showsPins(_ home: Home) -> Bool {
         if FloorStack.hasStackedFloors(home) || dollhouse { return true }
-        return home.coordinatesAreUnified
+        return PlanLayers.showsDevicePins(home)
+    }
+
+    private func shellURL(_ home: Home) -> URL? {
+        if proceduralModel(home) { return nil }
+        let applied = RoomAlignment.applied(to: home)
+        if applied.changesDisplay && applied.hidesMergedModel { return nil }
+        return store.structureModelURL(in: home)
     }
 
     private func caption(_ home: Home) -> String {
+        let applied = RoomAlignment.applied(to: home)
+        if applied.changesDisplay {
+            if !applied.overlaps.isEmpty {
+                return overlapCaption(applied, in: home)
+            }
+            if applied.hidesMergedModel {
+                return "Rooms were moved onto their shared walls. Pins moved with each room."
+            }
+            return "Pins moved with each room into the aligned floor."
+        }
         if let _ = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return "Aligned shell from RoomPlan. Pins stay in each room because the align step does not move them yet."
         }
@@ -397,11 +425,8 @@ struct HomeViewer: View {
             abs(lhs.offset.y - y) < abs(rhs.offset.y - y)
         } ?? current.first
         guard let match else { return }
-        let item = PlacedFurniture.placed(
-            catalogId: catalogItemID,
-            x: x - match.offset.x,
-            z: z - match.offset.z
-        )
+        let stored = PlanLayers.storedPoint(Vec3(x: x, y: 0, z: z), in: match)
+        let item = PlacedFurniture.placed(catalogId: catalogItemID, x: stored.x, z: stored.z)
         mutate { _ = $0.upsertFurniture(item, in: match.id) }
         selectedFurnitureID = item.id
         placingFurniture = false
@@ -424,10 +449,50 @@ struct HomeViewer: View {
         }
     }
 
+    private func overlapCaption(_ applied: RoomAlignmentResult, in home: Home) -> String {
+        guard let overlap = applied.overlaps.first else {
+            return "Two scans cover the same floor. Choose which one to keep. Pins moved with each room."
+        }
+        if overlap.roomIds.count == 2,
+           let name = home.room(id: overlap.roomIds[0])?.name,
+           home.room(id: overlap.roomIds[1])?.name == name {
+            return "\(name) was scanned twice, so the later copy is hidden. Choose which scan to keep. Pins moved with each room."
+        }
+        return "Two scans cover the same floor. The extra copy is hidden. Choose which scan to keep. Pins moved with each room."
+    }
+
+    @ViewBuilder
+    private func overlapChoices(_ home: Home) -> some View {
+        let overlaps = RoomAlignment.applied(to: home).overlaps
+        if !overlaps.isEmpty {
+            ForEach(overlaps) { overlap in
+                ForEach(overlap.choices(in: home)) { choice in
+                    Button(choice.title) { keep(choice.id, in: overlap) }
+                        .buttonStyle(.bordered)
+                        .tint(Theme.accentOnCharcoal)
+                }
+            }
+        }
+    }
+
+    private func keep(_ id: UUID, in overlap: RoomOverlap) {
+        do {
+            for roomId in overlap.roomIds where roomId != id {
+                try store.deleteRoom(homeId: homeID, roomId: roomId)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func create(in home: Home, x: Double, z: Double, y: Double) {
-        guard let roomId = PlanLayers.roomID(containingX: x, z: z, in: home) else { return }
+        let drawn = layers(home)
+        guard let roomId = PlanLayers.roomID(containingX: x, z: z, in: drawn) else { return }
         var pin = DevicePin.placed(in: roomId, kind: placeKind, x: x, z: z)
         pin.position.y = y
+        let stored = PlanLayers.storedXZ(displayX: x, displayZ: z, of: pin, in: drawn)
+        pin.position.x = stored.x
+        pin.position.z = stored.z
         save(pin)
         selectedPinID = pin.id
         editor = pin

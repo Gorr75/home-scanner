@@ -180,9 +180,9 @@ private struct HomeRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             FloorPlanCanvas(
-                layers: PlanLayers.rooms(home.rooms, unified: home.coordinatesAreUnified),
+                layers: PlanLayers.forHome(home),
                 pins: home.pins,
-                showPins: home.coordinatesAreUnified,
+                showPins: PlanLayers.showsDevicePins(home),
                 selectedPinID: nil,
                 placing: false,
                 interactive: false,
