@@ -119,25 +119,63 @@ public struct RoomAssets: Codable, Equatable, Sendable {
     }
 }
 
-public struct Room: Codable, Equatable, Identifiable, Sendable {
+public struct Room: Equatable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
     public var createdAt: Date
     public var floorPlan: FloorPlan
     public var assets: RoomAssets
+    /// Storey index. `0` is the ground floor, positive is up, negative is below.
+    /// Omitted from JSON when the room has not been assigned a floor.
+    public var floor: Int?
+    /// Camera saved from the 3D view, in this room's scan space.
+    /// Omitted from JSON until someone taps Save viewpoint.
+    public var viewpoint: CameraViewpoint?
 
     public init(
         id: UUID,
         name: String,
         createdAt: Date,
         floorPlan: FloorPlan,
-        assets: RoomAssets = RoomAssets()
+        assets: RoomAssets = RoomAssets(),
+        floor: Int? = nil,
+        viewpoint: CameraViewpoint? = nil
     ) {
         self.id = id
         self.name = name
         self.createdAt = createdAt
         self.floorPlan = floorPlan
         self.assets = assets
+        self.floor = floor
+        self.viewpoint = viewpoint
+    }
+}
+
+extension Room: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, name, createdAt, floorPlan, assets, floor, viewpoint
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        floorPlan = try container.decode(FloorPlan.self, forKey: .floorPlan)
+        assets = try container.decodeIfPresent(RoomAssets.self, forKey: .assets) ?? RoomAssets()
+        floor = try container.decodeIfPresent(Int.self, forKey: .floor)
+        viewpoint = try container.decodeIfPresent(CameraViewpoint.self, forKey: .viewpoint)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(floorPlan, forKey: .floorPlan)
+        try container.encode(assets, forKey: .assets)
+        try container.encodeIfPresent(floor, forKey: .floor)
+        try container.encodeIfPresent(viewpoint, forKey: .viewpoint)
     }
 }
 

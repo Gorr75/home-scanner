@@ -6,7 +6,7 @@ Phone upload to Home Assistant is live. The app reads entity state over REST and
 
 The main purpose is exporting rooms and layouts to Home Assistant. The app stays fully useful on its own. Scanning, measuring, annotations, inventory, editing, furniture, walkthrough, and checklists work with no Home Assistant connection. Home Assistant adds live state, device control, and the Lovelace dashboard on top. Maintenance checklists export to Home Assistant to-dos when the phone is connected, and they work as in-app reminders otherwise.
 
-The Lovelace card, live light colour in the 3D view, placing pins from areas, and daylight by time of day are in the app. The v0.4 floor switcher and viewpoints, day and night plates, the photo-real tablet card, and the furniture catalog are in progress, with the v0.5 plan editor and the multi-floor dollhouse. Sweet Home 3D export is deferred. Next, After that, and Later follow.
+The Lovelace card, live light colour in the 3D view, placing pins from areas, daylight by time of day, and the v0.4 floor switcher, saved viewpoints, day and night plates, and photo-real tablet card are in the app. The furniture catalog is in progress, with the v0.5 plan editor and the multi-floor dollhouse. Sweet Home 3D export is deferred. Next, After that, and Later follow.
 
 ## Now
 
@@ -28,9 +28,14 @@ Done:
 
 In progress. v0.4 is the wall-tablet card and the path for people who furnish outside RoomPlan.
 
-- **Photo-real card.** A tablet should blend a lights-off plate and one plate per light with CSS or a room overlay, instead of loading a full 3D model.
-- **Day and night plates switched by `sun.sun`.** The same card can swap two pre-rendered sets when Home Assistant says the sun is down.
-- **Floor switcher and a saved viewpoint per room.** Several rooms already scan into one home, and a tablet needs a floor picker and a camera for each room.
+Done:
+
+- **Floor switcher and a saved viewpoint per room.** A room can store an optional floor (a level, omitted until you set one) and a camera saved from the 3D view. The home screen groups rooms by that floor. **Save viewpoint** writes the current camera. The upload includes both in `layout.json`. The card shows a floor picker and opens each room on its saved camera.
+- **Day and night plates switched by `sun.sun`.** The photo card uses the same daylight mapping as the 3D view. The `night` phase shows the night plates. Sunrise, sunset, and day show the day plates.
+- **Photo-real card.** Photo mode composites a lights-off base plate and one plate per light with `mix-blend-mode: screen`. Opacity and colour follow the live Home Assistant brightness and colour. Tapping a light's region toggles that entity. The app renders the plates from the saved viewpoint (all lights off, then one light at a time, day and night) and uploads them to `/local/home_scanner/<id>/plates/` with `plates/manifest.json`. Plan and 3D stay available. `viewer.html` is unchanged.
+
+Still open:
+
 - **Placeable furniture and decor.** RoomPlan boxes are recognition, and a catalog with move, rotate, and scale is how a person furnishes after the scan.
 
 **Deferred.** Sweet Home 3D export (`.sh3d`). People who already use that floor-plan plugin can furnish there and keep its picture-elements workflow.

@@ -31,18 +31,38 @@ def display_name(layout: object, slug: str) -> str:
     return slug
 
 
+def room_floor(layout: object) -> int | None:
+    """The floor of a one-room folder. A whole home, or a room with no floor, is omitted."""
+    if not isinstance(layout, dict):
+        return None
+    home = layout.get("home")
+    if not isinstance(home, dict):
+        return None
+    rooms = home.get("rooms")
+    if not isinstance(rooms, list) or len(rooms) != 1 or not isinstance(rooms[0], dict):
+        return None
+    floor = rooms[0].get("floor")
+    if isinstance(floor, bool) or not isinstance(floor, int):
+        return None
+    return floor
+
+
 def room_entry(slug: str, layout_bytes: bytes, files: list[str], updated_at: str) -> dict:
     try:
         layout = json.loads(layout_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         layout = None
-    return {
+    entry = {
         "slug": slug,
         "name": display_name(layout, slug),
         "path": f"/local/home_scanner/{slug}/",
         "files": list(files),
         "updated_at": updated_at,
     }
+    floor = room_floor(layout)
+    if floor is not None:
+        entry["floor"] = floor
+    return entry
 
 
 def scan_index(config_dir: str) -> dict:
@@ -63,6 +83,8 @@ def scan_index(config_dir: str) -> dict:
             if not os.path.isfile(layout_path):
                 continue
             files = [filename for filename in UPLOAD_FILES if os.path.isfile(os.path.join(folder, filename))]
+            if os.path.isfile(os.path.join(folder, "plates", "manifest.json")):
+                files.append("plates/manifest.json")
             try:
                 with open(layout_path, "rb") as handle:
                     payload = handle.read()

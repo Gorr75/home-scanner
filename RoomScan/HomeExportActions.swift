@@ -8,7 +8,20 @@ enum HomeExportActions {
             for: home,
             usdzFiles: store.usdzFiles(in: home),
             textures: store.appliedTextures(in: home)
-        )
+        ).map { package in
+            package.withPlates(plates(for: package))
+        }
+    }
+
+    /// Plates belong to a room folder. A whole-home package stays layout and model only.
+    private static func plates(for package: ScanPackage) -> [HomeScannerFile] {
+        guard let document = try? HomeLayoutDocument.decode(package.layoutJSON),
+              document.home.rooms.count == 1,
+              let room = document.home.rooms.first else {
+            return []
+        }
+        let images = PlateRenderer.render(room: room, pins: document.home.pins)
+        return (try? PlateCatalog.files(for: room, pins: document.home.pins, images: images)) ?? []
     }
 
     static func zipURL(for home: Home, store: HomeStore) throws -> URL {

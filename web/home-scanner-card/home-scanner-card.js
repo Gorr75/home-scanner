@@ -5,23 +5,24 @@
 const LOCAL_ROOT = "/local/home_scanner";
 const TOGGLE_DOMAINS = new Set(["light", "switch", "fan"]);
 
+function listedRoom(room) {
+  if (!room || typeof room !== "object") return null;
+  const slug = String(room.slug || room.id || "").trim();
+  if (!slug) return null;
+  return {
+    slug,
+    name: room.name || slug,
+    path: room.path || `${LOCAL_ROOT}/${slug}/`,
+    floor: Number.isInteger(room.floor) ? room.floor : null,
+  };
+}
+
 function configuredRooms(config) {
   if (Array.isArray(config.rooms) && config.rooms.length) {
-    return config.rooms
-      .map((room) => {
-        const slug = String(room.slug || room.id || "").trim();
-        if (!slug) return null;
-        return {
-          slug,
-          name: room.name || slug,
-          path: `${LOCAL_ROOT}/${slug}/`,
-        };
-      })
-      .filter(Boolean);
+    return config.rooms.map(listedRoom).filter(Boolean);
   }
   if (config.slug) {
-    const slug = String(config.slug).trim();
-    return [{ slug, name: config.name || slug, path: `${LOCAL_ROOT}/${slug}/` }];
+    return [listedRoom({ slug: config.slug, name: config.name, floor: config.floor })].filter(Boolean);
   }
   return null;
 }
@@ -30,7 +31,7 @@ async function discoverRooms(hass) {
   if (hass && typeof hass.callApi === "function") {
     try {
       const index = await hass.callApi("GET", "home_scanner/rooms");
-      if (index && Array.isArray(index.rooms)) return index.rooms;
+      if (index && Array.isArray(index.rooms)) return index.rooms.map(listedRoom).filter(Boolean);
     } catch (_error) {
       // The integration may be older than the card. Fall through to index.json.
     }
@@ -39,7 +40,7 @@ async function discoverRooms(hass) {
     const response = await fetch(`${LOCAL_ROOT}/index.json`, { cache: "no-store" });
     if (!response.ok) return [];
     const index = await response.json();
-    return Array.isArray(index.rooms) ? index.rooms : [];
+    return Array.isArray(index.rooms) ? index.rooms.map(listedRoom).filter(Boolean) : [];
   } catch (_error) {
     return [];
   }
@@ -123,6 +124,136 @@ function sceneGeometry(home) {
     });
   }
   return { frames, byRoom, bounds: boundsOf(points), unified: frames.every((frame) => frame.unified) };
+}
+
+function integerFloor(value) {
+  return Number.isInteger(value) ? value : null;
+}
+
+function floorChoices(rooms) {
+  const levels = [];
+  let unassigned = false;
+  for (const room of rooms || []) {
+    const level = integerFloor(room.floor);
+    if (level == null) {
+      unassigned = true;
+      continue;
+    }
+    if (!levels.includes(level)) levels.push(level);
+  }
+  levels.sort((a, b) => a - b);
+  if (!levels.length) return [];
+  const choices = levels.map((level) => ({ level, name: `Floor ${level}` }));
+  if (unassigned) choices.push({ level: null, name: "No floor" });
+  return choices;
+}
+
+function roomsOnFloor(rooms, level) {
+  return (rooms || []).filter((room) => integerFloor(room.floor) === level);
+}
+
+function activeFloor(choices, selected) {
+  if (!choices.length) return undefined;
+  if (choices.some((choice) => choice.level === selected)) return selected;
+  return choices[0].level;
+}
+
+function foldersOnFloor(folders, level, enabled) {
+  if (!enabled) return folders || [];
+  return (folders || []).filter((folder) => integerFloor(folder.floor) === level);
+}
+
+function focusedRoom(rooms, floor, roomId) {
+  const list = Array.isArray(rooms) ? rooms : [];
+  if (!list.length) return null;
+  if (list.length === 1) return list[0];
+  const choices = floorChoices(list);
+  const level = activeFloor(choices, floor);
+  const visible = choices.length ? roomsOnFloor(list, level) : list;
+  return visible.find((room) => room.id === roomId) || visible[0] || list[0];
+}
+
+function plateSlugFor(folderSlug, home, room) {
+  const rooms = home && Array.isArray(home.rooms) ? home.rooms : [];
+  if (rooms.length <= 1) return folderSlug || null;
+  if (room && room.id) return String(room.id);
+  return folderSlug || null;
+}
+
+function trimNumber(value) {
+  if (!Number.isFinite(value)) return "0";
+  return String(Math.round(value * 10000) / 10000);
+}
+
+function cameraOrbit(viewpoint, offset) {
+  const shift = offset || {};
+  const position = viewpoint && viewpoint.position ? viewpoint.position : {};
+  const target = viewpoint && viewpoint.target ? viewpoint.target : {};
+  const targetX = (Number(target.x) || 0) + (Number(shift.x) || 0);
+  const targetY = Number(target.y) || 0;
+  const targetZ = (Number(target.z) || 0) + (Number(shift.z) || 0);
+  let dx = (Number(position.x) || 0) + (Number(shift.x) || 0) - targetX;
+  let dy = (Number(position.y) || 0) - targetY;
+  let dz = (Number(position.z) || 0) + (Number(shift.z) || 0) - targetZ;
+  let radius = Math.hypot(dx, dy, dz);
+  if (!(radius > 1e-4)) {
+    dx = 0;
+    dy = 0;
+    dz = 1;
+    radius = 1;
+  }
+  const theta = Math.atan2(dx, dz);
+  const phi = Math.acos(Math.min(1, Math.max(-1, dy / radius)));
+  const fov = Number(viewpoint && (viewpoint.field_of_view ?? viewpoint.fieldOfView));
+  return {
+    theta,
+    phi,
+    radius,
+    fieldOfView: Number.isFinite(fov) && fov > 0 ? fov : 48,
+    orbit: `${trimNumber(theta)}rad ${trimNumber(phi)}rad ${trimNumber(radius)}m`,
+    target: `${trimNumber(targetX)}m ${trimNumber(targetY)}m ${trimNumber(targetZ)}m`,
+  };
+}
+
+function plateVariant(tint) {
+  return tint && tint.phase === "night" ? "night" : "day";
+}
+
+function plateStyle(stateObj) {
+  if (!stateObj || stateObj.state !== "on") {
+    return { opacity: 0, color: "rgb(255, 255, 255)" };
+  }
+  const domain = (stateObj.entity_id || "").split(".")[0];
+  if (domain !== "light") return { opacity: 1, color: "rgb(255, 255, 255)" };
+  const attrs = stateObj.attributes || {};
+  const brightness = typeof attrs.brightness === "number" ? Math.max(0, Math.min(1, attrs.brightness / 255)) : 1;
+  const rgb = lightRGB(attrs).map((value) => Math.round(Math.max(0, Math.min(255, value))));
+  return { opacity: brightness, color: `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})` };
+}
+
+function hitRegion(regions, x, y) {
+  let best = null;
+  let bestDistance = Infinity;
+  for (const region of regions || []) {
+    if (!region || typeof region.x !== "number" || typeof region.y !== "number") continue;
+    const radius = Number(region.radius);
+    if (!(radius > 0)) continue;
+    const distance = (region.x - x) ** 2 + (region.y - y) ** 2;
+    if (distance <= radius * radius && distance < bestDistance) {
+      best = region;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+async function loadPlates(slug) {
+  const response = await fetch(fileURL(slug, "plates/manifest.json"), { cache: "no-store" });
+  if (!response.ok) return null;
+  const manifest = await response.json();
+  if (!manifest || manifest.format !== "home_scanner.plates" || manifest.version !== 1) return null;
+  if (!manifest.day || !manifest.night) return null;
+  return manifest;
 }
 
 function lightRGB(attributes) {
@@ -398,12 +529,20 @@ class HomeScannerCard extends HTMLElement {
     this._status = "Loading rooms…";
     this._hits = [];
     this._booted = false;
+    this._floor = undefined;
+    this._focusRoomId = null;
+    this._plates = null;
+    this._plateRequest = 0;
+    this._configView = undefined;
   }
 
   setConfig(config) {
     if (!config || typeof config !== "object") {
       throw new Error("Home Scanner card needs a configuration.");
     }
+    const view = config.view === "model" || config.view === "photo" || config.view === "plan" ? config.view : null;
+    if (view && view !== this._configView) this._mode = view;
+    this._configView = view;
     this._config = config;
     this._fixedRooms = configuredRooms(config);
     if (this._fixedRooms && this._fixedRooms.length === 1) {
@@ -446,15 +585,55 @@ class HomeScannerCard extends HTMLElement {
 
   async _open(slug) {
     this._slug = slug;
+    this._floor = undefined;
+    this._focusRoomId = null;
+    this._plates = null;
+    this._plateRequest += 1;
     this._status = "Loading layout…";
     this._render();
     try {
       this._home = await loadLayout(slug);
       this._status = "";
       if (this._mode === "model") await this._showModel();
+      if (this._mode === "photo") await this._loadPlates();
     } catch (error) {
       this._home = null;
       this._status = error.message || "Could not read layout.json.";
+    }
+    this._render();
+  }
+
+  async _setMode(mode) {
+    if (mode === "model") {
+      await this._showModel();
+      return;
+    }
+    this._mode = mode;
+    if (mode === "photo") await this._loadPlates();
+    else this._render();
+  }
+
+  _focusedRoom() {
+    const rooms = this._home && Array.isArray(this._home.rooms) ? this._home.rooms : [];
+    return focusedRoom(rooms, this._floor, this._focusRoomId);
+  }
+
+  async _loadPlates() {
+    const slug = plateSlugFor(this._slug, this._home, this._focusedRoom());
+    this._plateRequest += 1;
+    const request = this._plateRequest;
+    if (!slug) {
+      this._plates = null;
+      this._render();
+      return;
+    }
+    try {
+      const plates = await loadPlates(slug);
+      if (request !== this._plateRequest) return;
+      this._plates = plates;
+    } catch (_error) {
+      if (request !== this._plateRequest) return;
+      this._plates = null;
     }
     this._render();
   }
@@ -487,7 +666,8 @@ class HomeScannerCard extends HTMLElement {
             box-shadow: var(--ha-card-box-shadow, none);
           }
           h2 { margin: 0 0 8px; font-size: 1.05rem; font-weight: 650; }
-          .rooms, .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+          .rooms, .tabs, .floors, .focus { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+          .floors:empty, .focus:empty { display: none; }
           button {
             border: 1px solid var(--divider-color, #d9d0c3);
             background: transparent;
@@ -509,6 +689,38 @@ class HomeScannerCard extends HTMLElement {
             border-radius: 10px;
             display: block;
           }
+          canvas[hidden], .model[hidden], .photo[hidden] { display: none !important; }
+          .photo {
+            width: 100%;
+            height: 320px;
+            background: #100e0c;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+          }
+          .stage { position: relative; width: min(100%, calc(320px * 16 / 9)); max-height: 100%; }
+          .stage img.base { width: 100%; height: auto; display: block; }
+          .glow {
+            position: absolute;
+            inset: 0;
+            mix-blend-mode: screen;
+            pointer-events: none;
+            -webkit-mask-size: 100% 100%;
+            mask-size: 100% 100%;
+            -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+          }
+          button.region {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            background: transparent;
+            border: none;
+            padding: 0;
+            min-width: 0;
+          }
           .status, .hint, .daylight { color: var(--secondary-text-color, #5c564e); font-size: 0.85rem; }
           .daylight { margin: 6px 0 0; }
           button.hotspot {
@@ -526,10 +738,13 @@ class HomeScannerCard extends HTMLElement {
         </style>
         <div class="card">
           <h2></h2>
+          <div class="floors"></div>
           <div class="rooms"></div>
+          <div class="focus"></div>
           <div class="tabs"></div>
           <canvas width="640" height="360" hidden></canvas>
           <div class="model"></div>
+          <div class="photo" hidden></div>
           <p class="status"></p>
           <p class="daylight"></p>
           <ul class="pins"></ul>
@@ -539,9 +754,29 @@ class HomeScannerCard extends HTMLElement {
       root.querySelector("canvas").addEventListener("click", (event) => this._onCanvasClick(event));
     }
     root.querySelector("h2").textContent = title;
+    const homeRooms = this._home && Array.isArray(this._home.rooms) ? this._home.rooms : [];
+    const multi = homeRooms.length > 1;
+    const choices = floorChoices(multi ? homeRooms : this._rooms);
+    const floor = activeFloor(choices, this._floor);
+    const floors = root.querySelector(".floors");
+    floors.replaceChildren();
+    for (const choice of choices) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = choice.name;
+      button.setAttribute("aria-pressed", choice.level === floor ? "true" : "false");
+      button.addEventListener("click", () => {
+        this._floor = choice.level;
+        this._focusRoomId = null;
+        if (this._mode === "photo") this._loadPlates();
+        else this._render();
+      });
+      floors.append(button);
+    }
     const rooms = root.querySelector(".rooms");
     rooms.replaceChildren();
-    for (const room of this._rooms) {
+    const folders = foldersOnFloor(this._rooms, floor, !multi && choices.length > 0);
+    for (const room of folders) {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = room.name || room.slug;
@@ -549,30 +784,50 @@ class HomeScannerCard extends HTMLElement {
       button.addEventListener("click", () => this._open(room.slug));
       rooms.append(button);
     }
+    const focus = root.querySelector(".focus");
+    focus.replaceChildren();
+    if (multi) {
+      const visible = choices.length ? roomsOnFloor(homeRooms, floor) : homeRooms;
+      const current = this._focusedRoom();
+      for (const room of visible) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = room.name || "Room";
+        button.setAttribute("aria-pressed", current && current.id === room.id ? "true" : "false");
+        button.addEventListener("click", () => {
+          this._focusRoomId = room.id;
+          if (this._mode === "photo") this._loadPlates();
+          else this._render();
+        });
+        focus.append(button);
+      }
+    }
     const tabs = root.querySelector(".tabs");
     tabs.replaceChildren();
     if (this._slug) {
-      for (const mode of ["plan", "model"]) {
+      const labels = { plan: "Plan", model: "3D", photo: "Photo" };
+      for (const mode of ["plan", "model", "photo"]) {
         const button = document.createElement("button");
         button.type = "button";
-        button.textContent = mode === "plan" ? "Plan" : "3D";
+        button.textContent = labels[mode];
         button.setAttribute("aria-pressed", this._mode === mode ? "true" : "false");
-        button.addEventListener("click", () => {
-          if (mode === "model") this._showModel();
-          else {
-            this._mode = "plan";
-            this._render();
-          }
-        });
+        button.addEventListener("click", () => this._setMode(mode));
         tabs.append(button);
       }
     }
     const canvas = root.querySelector("canvas");
     const modelHost = root.querySelector(".model");
+    const photoHost = root.querySelector(".photo");
     canvas.hidden = this._mode !== "plan" || !this._home;
     modelHost.hidden = this._mode !== "model";
+    photoHost.hidden = this._mode !== "photo";
     if (this._mode === "model") this._mountModel(modelHost);
     else modelHost.replaceChildren();
+    if (this._mode === "photo") this._syncPhoto(photoHost);
+    else {
+      photoHost.replaceChildren();
+      delete photoHost.dataset.key;
+    }
     root.querySelector(".status").textContent = this._status || "";
     const daylightLine = root.querySelector(".daylight");
     if (daylightLine) {
@@ -645,6 +900,95 @@ class HomeScannerCard extends HTMLElement {
         });
       }
       viewer.append(button);
+    }
+    this._applyCamera(viewer, geometry);
+  }
+
+  _applyCamera(viewer, geometry) {
+    const room = this._focusedRoom();
+    const viewpoint = room && room.viewpoint;
+    if (!viewpoint || !room) return;
+    const count = this._home && Array.isArray(this._home.rooms) ? this._home.rooms.length : 0;
+    // A combined model that is not in one coordinate space is not this room's camera.
+    if (count > 1 && !geometry.unified) return;
+    const frame = geometry.byRoom.get(room.id);
+    const offset = frame && frame.unified === false ? { x: frame.ox, z: frame.oz } : { x: 0, z: 0 };
+    const orbit = cameraOrbit(viewpoint, offset);
+    const key = `${room.id}|${orbit.orbit}|${orbit.target}|${orbit.fieldOfView}`;
+    if (viewer.dataset.orbitKey === key) return;
+    viewer.dataset.orbitKey = key;
+    viewer.setAttribute("camera-orbit", orbit.orbit);
+    viewer.setAttribute("camera-target", orbit.target);
+    viewer.setAttribute("field-of-view", `${trimNumber(orbit.fieldOfView)}deg`);
+    if ("cameraOrbit" in viewer) viewer.cameraOrbit = orbit.orbit;
+    if ("cameraTarget" in viewer) viewer.cameraTarget = orbit.target;
+    if ("fieldOfView" in viewer) viewer.fieldOfView = `${trimNumber(orbit.fieldOfView)}deg`;
+  }
+
+  _syncPhoto(host) {
+    const manifest = this._plates;
+    const variant = plateVariant(this._tint);
+    const set = manifest && manifest[variant];
+    const slug = plateSlugFor(this._slug, this._home, this._focusedRoom());
+    if (!manifest || !set || !set.base || !slug) {
+      host.replaceChildren();
+      delete host.dataset.key;
+      const note = document.createElement("p");
+      note.className = "status";
+      note.textContent = "No photo plates for this room yet. Save a viewpoint in the app and send the room again. Plan and 3D still work.";
+      host.append(note);
+      return;
+    }
+    const key = `${slug}|${variant}|${manifest.room_id || ""}|${set.base}`;
+    if (host.dataset.key !== key) {
+      host.dataset.key = key;
+      host.replaceChildren();
+      const stage = document.createElement("div");
+      stage.className = "stage";
+      const width = Number(manifest.width) || 16;
+      const height = Number(manifest.height) || 9;
+      stage.style.aspectRatio = `${width} / ${height}`;
+      const base = document.createElement("img");
+      base.className = "base";
+      base.alt = "";
+      base.src = fileURL(slug, set.base);
+      stage.append(base);
+      for (const light of set.lights || []) {
+        const glow = document.createElement("div");
+        glow.className = "glow";
+        glow.dataset.pin = light.pin_id || light.file;
+        const mask = `url("${fileURL(slug, light.file)}")`;
+        glow.style.webkitMaskImage = mask;
+        glow.style.maskImage = mask;
+        stage.append(glow);
+        if (light.region && light.entity_id) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "region";
+          button.style.left = `${light.region.x * 100}%`;
+          button.style.top = `${light.region.y * 100}%`;
+          button.style.width = `${Math.max(light.region.radius * 2, 0.08) * 100}%`;
+          button.style.height = `${Math.max(light.region.radius * 2, 0.08) * 100}%`;
+          button.setAttribute("aria-label", light.entity_id);
+          button.addEventListener("click", (event) => {
+            event.preventDefault();
+            this._toggle(light.entity_id);
+          });
+          stage.append(button);
+        }
+      }
+      host.append(stage);
+    }
+    const stage = host.querySelector(".stage");
+    if (!stage) return;
+    for (const light of set.lights || []) {
+      const pin = light.pin_id || light.file;
+      const glow = [...stage.querySelectorAll(".glow")].find((node) => node.dataset.pin === pin);
+      if (!glow) continue;
+      const stateObj = light.entity_id && this._hass ? this._hass.states[light.entity_id] : null;
+      const style = plateStyle(stateObj);
+      glow.style.opacity = String(style.opacity);
+      glow.style.backgroundColor = style.color;
     }
   }
 
@@ -771,9 +1115,23 @@ if (!window.customCards.some((card) => card.type === "home-scanner-card")) {
   window.customCards.push({
     type: "home-scanner-card",
     name: "Home Scanner",
-    description: "Rooms uploaded by the Home Scanner app, with the floor plan and model.glb.",
+    description: "Rooms uploaded by the Home Scanner app, with the floor plan, model, and photo plates.",
     preview: false,
   });
 }
 
-export { daylightFromClock, daylightFromSun, daylightTint };
+export {
+  daylightFromClock,
+  daylightFromSun,
+  daylightTint,
+  floorChoices,
+  roomsOnFloor,
+  activeFloor,
+  foldersOnFloor,
+  focusedRoom,
+  plateSlugFor,
+  cameraOrbit,
+  plateVariant,
+  plateStyle,
+  hitRegion,
+};
