@@ -6,7 +6,7 @@ Phone upload to Home Assistant is live. The app reads entity state over REST and
 
 The main purpose is exporting rooms and layouts to Home Assistant. The app stays fully useful on its own. Scanning, measuring, annotations, inventory, editing, furniture, walkthrough, and checklists work with no Home Assistant connection. Home Assistant adds live state, device control, and the Lovelace dashboard on top. Maintenance checklists export to Home Assistant to-dos when the phone is connected, and they work as in-app reminders otherwise.
 
-The Lovelace card, live light colour in the 3D view, placing pins from areas, daylight by time of day, the v0.4 floor switcher, saved viewpoints, day and night plates, the photo-real tablet card, the furniture catalog, and the multi-floor dollhouse are in the app. The v0.5 plan editor is in progress. Sweet Home 3D export is deferred. Next, After that, and Later follow.
+The Lovelace card, live light colour in the 3D view, placing pins from areas, daylight by time of day, the v0.4 floor switcher, saved viewpoints, day and night plates, the photo-real tablet card, the furniture catalog, the multi-floor dollhouse, and the v0.5 plan editor are in the app. Sweet Home 3D export is deferred. Next, After that, and Later follow.
 
 ## Now
 
@@ -39,13 +39,14 @@ Done:
 
 ## v0.5
 
-In progress. v0.5 is a plan editor for geometry after the scan. RoomPlan still measures the room. These tools correct walls, doors, and windows by hand. They do not control devices.
+Done. RoomPlan still measures the room. These tools correct walls, doors, and windows by hand. They do not control devices. A split room keeps the floor it was cut from. Furniture stays in the half that contains it. Flooring, the saved viewpoint, and photo plates stay on the room.
 
-- **A room is a box with eight handles.** Tap a room, then drag an edge or a corner so the walls resize around the measured plan instead of staying frozen after the scan.
-- **Snap guides.** Dashed lines appear when a wall, door, or window lines up with another, so a hand edit meets the same grid the scan already implied.
-- **Split a room.** One button halves the room and inserts a door on the new wall, which is the usual way to turn one scanned volume into two.
-- **Slide a door or window along its wall.** The opening stays on the wall axis, and it snaps when it meets another opening or a corner.
-- **Copy an opening on the same wall.** A second door or window should start as a duplicate of the one you already placed, not as a new scan.
+- **A room is a box with eight handles.** Tap a room on the floor plan, then drag an edge or a corner. The walls resize around the measured plan, and doors and windows on a moved wall follow it.
+- **Snap guides.** Dashed lines appear when a wall, door, or window lines up with another, and the edit snaps within a small threshold.
+- **Split a room.** One button halves the room and inserts a door on the new wall, which turns one scanned volume into two.
+- **Slide a door or window along its wall.** The opening stays on the wall and snaps when it meets another opening or a corner.
+- **Copy an opening on the same wall.** The duplicate starts from the door or window you already placed.
+- **Undo and redo.** The edit is saved in the home. Sending to Home Assistant writes that geometry into `layout.json` and `model.glb`.
 
 ## Multi-floor dollhouse
 

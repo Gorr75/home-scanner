@@ -31,6 +31,7 @@ struct RoomDetailView: View {
     @State private var pendingPlacements: [DevicePin] = []
     @State private var confirmAutoPlace = false
     @State private var previewHour: Double?
+    @State private var planEditor = PlanEditorSession()
     @State private var placingFurniture = false
     @State private var catalogItemID: String?
     @State private var showCatalog = false
@@ -72,6 +73,16 @@ struct RoomDetailView: View {
                         model(home, room: room)
                     case .plan:
                         plan(room)
+                        PlanEditorBar(
+                            canUndo: planEditor.canUndo,
+                            canRedo: planEditor.canRedo,
+                            canSplit: planEditor.canSplit(home),
+                            canCopy: planEditor.canCopy,
+                            onUndo: undoPlan,
+                            onRedo: redoPlan,
+                            onSplit: splitRoom,
+                            onCopy: copyOpening
+                        )
                         measurementLine(room)
                     case .objects:
                         objectList(room)
@@ -280,11 +291,25 @@ struct RoomDetailView: View {
             onCreate: { x, z in
                 create(in: roomID, x: x, z: z, y: placeKind.defaultHeight)
             },
+            planEditing: !placing && !placingFurniture,
+            selectedRoomID: planEditor.selectedRoomID,
+            selectedOpeningID: planEditor.selectedOpeningID,
+            extraSnapPlans: snapPlans(except: room.id),
+            onSelectRoom: { id in
+                planEditor.selectedRoomID = id
+                if id != nil { selectedFurnitureID = nil }
+            },
+            onSelectOpening: { planEditor.selectedOpeningID = $0 },
+            onCommitPlan: { commitPlan(roomID: $0, plan: $1) },
             selectedFurnitureID: selectedFurnitureID,
             placingFurniture: placingFurniture,
             onSelectFurniture: { id in
                 selectedFurnitureID = id
-                if id != nil { selectedPinID = nil }
+                if id != nil {
+                    selectedPinID = nil
+                    planEditor.selectedRoomID = nil
+                    planEditor.selectedOpeningID = nil
+                }
             },
             onMoveFurniture: { id, x, z in
                 moveFurniture(id, x: x, z: z)
@@ -809,6 +834,43 @@ struct RoomDetailView: View {
             return
         }
         errorMessage = "This room has no USDZ file yet. A LiDAR scan writes one you can share."
+    }
+
+    private func snapPlans(except roomID: UUID) -> [FloorPlan] {
+        guard let home, home.coordinatesAreUnified else { return [] }
+        return home.rooms.filter { $0.id != roomID }.map(\.floorPlan)
+    }
+
+    private func commitPlan(roomID: UUID, plan: FloorPlan) {
+        guard let home, let edited = planEditor.commit(roomID: roomID, plan: plan, in: home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func splitRoom() {
+        guard let home, let edited = planEditor.split(home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func copyOpening() {
+        guard let home, let edited = planEditor.copyOpening(in: home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func undoPlan() {
+        guard let home, let edited = planEditor.undo(home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func redoPlan() {
+        guard let home, let edited = planEditor.redo(home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func applyPlanEdit(_ edited: Home) {
+        mutate { home in
+            home.rooms = edited.rooms
+            home.pins = edited.pins
+        }
     }
 
     private func mutate(_ body: (inout Home) -> Void) {

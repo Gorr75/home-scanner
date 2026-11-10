@@ -17,6 +17,7 @@ struct HomeViewer: View {
     @State private var errorMessage: String?
     @State private var showHeat = false
     @State private var previewHour: Double?
+    @State private var planEditor = PlanEditorSession()
     @State private var selectedFloor: Int?
     @State private var didPickFloor = false
     @State private var dollhouse = false
@@ -116,16 +117,30 @@ struct HomeViewer: View {
         }
         .safeAreaInset(edge: .bottom) {
             if let home {
-                VStack(alignment: .leading, spacing: 8) {
-                    overlapChoices(home)
-                    Text(caption(home))
-                        .font(.footnote)
-                        .foregroundStyle(Theme.mist)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(spacing: 0) {
+                    if showsPlan {
+                        PlanEditorBar(
+                            canUndo: planEditor.canUndo,
+                            canRedo: planEditor.canRedo,
+                            canSplit: planEditor.canSplit(home),
+                            canCopy: planEditor.canCopy,
+                            onUndo: undoPlan,
+                            onRedo: redoPlan,
+                            onSplit: splitRoom,
+                            onCopy: copyOpening
+                        )
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        overlapChoices(home)
+                        Text(caption(home))
+                            .font(.footnote)
+                            .foregroundStyle(Theme.mist)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Theme.charcoal)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Theme.charcoal)
             }
         }
         .task(id: home?.pins.map { "\($0.id.uuidString)|\($0.entityId ?? "")" }.joined(separator: ",") ?? "") {
@@ -180,9 +195,22 @@ struct HomeViewer: View {
                 },
                 onMovePin: { id, x, z in move(id, x: x, z: z) },
                 onCreate: { x, z in create(in: home, x: x, z: z, y: placeKind.defaultHeight) },
+                planEditing: !placing && !placingFurniture,
+                selectedRoomID: planEditor.selectedRoomID,
+                selectedOpeningID: planEditor.selectedOpeningID,
+                onSelectRoom: { id in
+                    planEditor.selectedRoomID = id
+                    if id != nil { selectedFurnitureID = nil }
+                },
+                onSelectOpening: { planEditor.selectedOpeningID = $0 },
+                onCommitPlan: { commitPlan(roomID: $0, plan: $1) },
                 onSelectFurniture: { id in
                     selectedFurnitureID = id
-                    if id != nil { selectedPinID = nil }
+                    if id != nil {
+                        selectedPinID = nil
+                        planEditor.selectedRoomID = nil
+                        planEditor.selectedOpeningID = nil
+                    }
                 },
                 onMoveFurniture: { id, x, z in
                     mutate { $0.moveFurniture(id: id, x: x, z: z) }
@@ -271,12 +299,17 @@ struct HomeViewer: View {
 
     private func layers(_ home: Home) -> [PlanLayer] {
         let rooms = editingRooms(home)
-        let stacked = dollhouse && !showsPlan
+        let hidden = Set(RoomAlignment.applied(to: home).suppressedRoomIds)
+        let visible = rooms.filter { !hidden.contains($0.id) }
+        if showsPlan {
+            // The plan editor writes scan-space walls. The align move is applied with the furniture and camera.
+            return PlanLayers.rooms(visible, unified: home.coordinatesAreUnified)
+        }
         let applied = RoomAlignment.applied(to: home)
         if applied.changesDisplay {
-            return PlanLayers.aligned(rooms, applied: applied, stacked: stacked)
+            return PlanLayers.aligned(visible, applied: applied, stacked: dollhouse)
         }
-        if stacked {
+        if dollhouse {
             return PlanLayers.rooms(rooms, unified: home.coordinatesAreUnified, stacked: true)
         }
         if FloorStack.hasStackedFloors(home) || home.rooms.contains(where: { !$0.placedFurniture.isEmpty || $0.flooring != nil }) {
@@ -290,7 +323,8 @@ struct HomeViewer: View {
 
     private func ghostLayers(_ home: Home) -> [PlanLayer] {
         guard showsPlan, let level = activeGroup(home)?.level else { return [] }
-        let rooms = home.rooms.filter { $0.floor == level - 1 }
+        let hidden = Set(RoomAlignment.applied(to: home).suppressedRoomIds)
+        let rooms = home.rooms.filter { $0.floor == level - 1 && !hidden.contains($0.id) }
         guard !rooms.isEmpty else { return [] }
         return PlanLayers.ghost(rooms, unified: home.coordinatesAreUnified)
     }
@@ -313,32 +347,44 @@ struct HomeViewer: View {
 
     private func caption(_ home: Home) -> String {
         let applied = RoomAlignment.applied(to: home)
+        if showsPlan {
+            if showHeat {
+                return "Heatmap blends numeric sensor readings, such as temperature or signal level, across the pins."
+            }
+            if placingFurniture {
+                return "Tap the plan to place the furniture."
+            }
+            if placing {
+                return "Tap the plan to place a \(placeKind.label.lowercased()). Drag a dot to move it."
+            }
+            if applied.changesDisplay && !applied.overlaps.isEmpty {
+                return overlapCaption(applied, in: home)
+            }
+            if let group = activeGroup(home), FloorGrouping.groups(in: home.rooms).count > 1 {
+                return "\(FloorGrouping.label(for: group.level)). Tap a room, then drag a handle. The floor below is a faint ghost when that storey exists."
+            }
+            if !home.coordinatesAreUnified && home.rooms.count > 1 {
+                return "Rooms sit side by side while each scan has its own origin. Tap a room, then drag a handle to resize it."
+            }
+            return "Tap a room, then drag a handle to resize it. Drag a door or window along its wall."
+        }
         if applied.changesDisplay {
             if !applied.overlaps.isEmpty {
                 return overlapCaption(applied, in: home)
             }
             if applied.hidesMergedModel {
-                return "Rooms were moved onto their shared walls. Pins moved with each room."
+                return "Rooms were moved onto their shared walls. Pins, furniture, and the saved camera moved with each room."
             }
-            return "Pins moved with each room into the aligned floor."
+            return "Pins, furniture, and the saved camera moved with each room into the aligned floor."
+        }
+        if dollhouse {
+            return "Dollhouse. Walls fade as you move closer. Drag a catalog item to move it."
         }
         if let _ = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return "Aligned shell from RoomPlan. Pins stay in each room because the align step does not move them yet."
         }
         if !home.coordinatesAreUnified && home.rooms.count > 1 {
             return "Rooms are side by side because each scan has its own origin. Combine them after scanning through a shared door."
-        }
-        if dollhouse && !showsPlan {
-            return "Dollhouse. Walls fade as you move closer. Drag a catalog item to move it."
-        }
-        if showsPlan, let group = activeGroup(home), FloorGrouping.groups(in: home.rooms).count > 1 {
-            return "\(FloorGrouping.label(for: group.level)). The floor below is a faint ghost when that storey exists, so stairs and shafts stay aligned."
-        }
-        if showsPlan {
-            if showHeat {
-                return "Heatmap blends numeric sensor readings, such as temperature or signal level, across the pins."
-            }
-            return placing ? "Tap the plan to place a \(placeKind.label.lowercased()). Drag a dot to move it." : "Drag the plan to pan. Pinch to zoom. Drag a device to move it."
         }
         if renderedUSDZ {
             return "USDZ model. Tap a light, switch, or fan to toggle it. Drag to orbit, pinch to zoom."
@@ -378,10 +424,19 @@ struct HomeViewer: View {
     }
 
     private func saveViewpoint(_ viewpoint: CameraViewpoint) {
-        guard let roomID = captureRoomID else { return }
+        guard let roomID = captureRoomID, let home else { return }
+        let layer = layers(home).first { $0.id == roomID }
+        let offset = layer?.offset ?? .zero
+        let placement = layer?.placement ?? .identity
+        let shifted = CameraViewpoint(
+            position: viewpoint.position - offset,
+            target: viewpoint.target - offset,
+            fieldOfView: viewpoint.fieldOfView
+        )
+        let stored = shifted.transformed(by: placement.inverse())
         mutate { home in
             guard let index = home.rooms.firstIndex(where: { $0.id == roomID }) else { return }
-            home.rooms[index].viewpoint = viewpoint
+            home.rooms[index].viewpoint = stored
         }
     }
 
@@ -513,6 +568,60 @@ struct HomeViewer: View {
     private func deletePin(_ id: UUID) {
         mutate { $0.deletePin(id: id) }
         if selectedPinID == id { selectedPinID = nil }
+    }
+
+    private func commitPlan(roomID: UUID, plan: FloorPlan) {
+        guard let home else { return }
+        let placement = layers(home).first { $0.id == roomID }?.placement ?? .identity
+        let stored = plan.transformed(by: placement.inverse())
+        guard let edited = planEditor.commit(roomID: roomID, plan: stored, in: home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func splitRoom() {
+        guard let home, let parentID = planEditor.selectedRoomID, let edited = planEditor.split(home) else { return }
+        let previous = Set(home.rooms.map(\.id))
+        let created = edited.rooms.map(\.id).filter { !previous.contains($0) }
+        mutate { home in
+            if let newID = created.first,
+               var placements = home.structure?.placements,
+               let parent = placements.first(where: { $0.roomId == parentID }) {
+                placements.append(RoomPlacement(
+                    roomId: newID,
+                    yaw: parent.yaw,
+                    translation: parent.translation,
+                    snapped: parent.snapped
+                ))
+                home.structure?.placements = placements
+                if home.structure?.roomIds.contains(newID) == false {
+                    home.structure?.roomIds.append(newID)
+                }
+            }
+            home.rooms = edited.rooms
+            home.pins = edited.pins
+        }
+    }
+
+    private func copyOpening() {
+        guard let home, let edited = planEditor.copyOpening(in: home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func undoPlan() {
+        guard let home, let edited = planEditor.undo(home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func redoPlan() {
+        guard let home, let edited = planEditor.redo(home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func applyPlanEdit(_ edited: Home) {
+        mutate { home in
+            home.rooms = edited.rooms
+            home.pins = edited.pins
+        }
     }
 
     private func mutate(_ body: (inout Home) -> Void) {

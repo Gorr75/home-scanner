@@ -362,7 +362,7 @@ public enum RoomAlignment {
     /// duplicate scans. Different rooms piled on the origin get another try via doorways.
     private static func separatePile(_ rooms: [Room], _ transforms: [UUID: RigidYaw]) -> RoomAlignmentResult? {
         let found = pairs(rooms, transforms)
-        let possible = rooms.count * (rooms.count - 1) / 2
+        let possible = sameFloorPairCount(rooms)
         guard possible > 0, found.count == possible, found.allSatisfy({ $0.ratio >= 0.5 }) else { return nil }
         guard found.contains(where: { !isDuplicate($0) }) else { return nil }
         guard var seated = seatByDoors(rooms) else { return nil }
@@ -412,7 +412,8 @@ public enum RoomAlignment {
 
     private static func cacheKey(for home: Home) -> String {
         let rooms = home.rooms.map { room in
-            "\(room.id.uuidString):\(room.floorPlan.walls.count):\(room.floorPlan.floors.count)"
+            let floor = room.floor.map(String.init) ?? "-"
+            return "\(room.id.uuidString):\(floor):\(room.floorPlan.walls.count):\(room.floorPlan.floors.count)"
         }.joined(separator: ",")
         let walls = home.structure?.overviewFloorPlan?.walls.count ?? 0
         return "\(home.id.uuidString)|\(home.updatedAt.timeIntervalSince1970)|\(walls)|\(rooms)"
@@ -553,7 +554,7 @@ public enum RoomAlignment {
             guardCount -= 1
             var best: (index: Int, transform: RigidYaw, overlap: Double)?
             for (index, room) in pending.enumerated() {
-                for other in rooms {
+                for other in rooms where sameFloor(room, other) {
                     guard let otherTransform = placed[other.id] else { continue }
                     let anchorPlan = other.floorPlan.transformed(by: otherTransform)
                     let anchorCenter = centroid(of: anchorPlan)
@@ -590,7 +591,7 @@ public enum RoomAlignment {
     ) -> RigidYaw? {
         let movingPlan = moving.floorPlan.transformed(by: transform)
         var best: (score: Double, delta: Double, target: WallSegment, moving: WallSegment, anchor: FloorPlan)?
-        for other in rooms where other.id != moving.id {
+        for other in rooms where other.id != moving.id && sameFloor(moving, other) {
             guard let otherTransform = transforms[other.id] else { continue }
             let anchor = other.floorPlan.transformed(by: otherTransform)
             for movingWall in movingPlan.walls where movingWall.length > 0.4 {
@@ -642,7 +643,7 @@ public enum RoomAlignment {
     private static func pairs(_ rooms: [Room], _ transforms: [UUID: RigidYaw]) -> [OverlapPair] {
         var found: [OverlapPair] = []
         for left in rooms.indices {
-            for right in rooms.indices where right > left {
+            for right in rooms.indices where right > left && sameFloor(rooms[left], rooms[right]) {
                 let earlier = rooms[left]
                 let later = rooms[right]
                 let leftPlan = earlier.floorPlan.transformed(by: transforms[earlier.id] ?? .identity)
@@ -657,6 +658,20 @@ public enum RoomAlignment {
         return found
     }
 
+    private static func sameFloor(_ lhs: Room, _ rhs: Room) -> Bool {
+        lhs.floor == rhs.floor
+    }
+
+    private static func sameFloorPairCount(_ rooms: [Room]) -> Int {
+        var count = 0
+        for left in rooms.indices {
+            for right in rooms.indices where right > left && sameFloor(rooms[left], rooms[right]) {
+                count += 1
+            }
+        }
+        return count
+    }
+
     private static func overlapCount(_ rooms: [Room], _ transforms: [UUID: RigidYaw], minimum: Double) -> Int {
         pairs(rooms, transforms).filter { $0.ratio >= minimum }.count
     }
@@ -669,7 +684,7 @@ public enum RoomAlignment {
     ) -> Double {
         let plan = room.floorPlan.transformed(by: transform)
         var worst = 0.0
-        for other in rooms where other.id != room.id {
+        for other in rooms where other.id != room.id && sameFloor(room, other) {
             guard let otherTransform = transforms[other.id] else { continue }
             let otherPlan = other.floorPlan.transformed(by: otherTransform)
             worst = max(worst, RoomFootprint.overlapRatio(plan, otherPlan))

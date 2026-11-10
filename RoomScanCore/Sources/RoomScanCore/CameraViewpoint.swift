@@ -40,6 +40,15 @@ public struct CameraViewpoint: Codable, Equatable, Sendable {
         )
     }
 
+    /// The same rigid move the align step applies to the room, its pins, and its furniture.
+    public func transformed(by rigid: RigidYaw) -> CameraViewpoint {
+        CameraViewpoint(
+            position: rigid.applying(position),
+            target: rigid.applying(target),
+            fieldOfView: fieldOfView
+        )
+    }
+
     /// model-viewer orbit. `offsetX` / `offsetZ` slide a room camera onto a side-by-side home model.
     public func orbit(offsetX: Double = 0, offsetZ: Double = 0) -> CameraOrbit {
         let eye = Vec3(x: position.x + offsetX, y: position.y, z: position.z + offsetZ)

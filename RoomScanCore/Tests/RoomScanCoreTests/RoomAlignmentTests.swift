@@ -150,6 +150,85 @@ final class RoomAlignmentTests: XCTestCase {
         ])
     }
 
+    func testSameFloorDuplicatesOverlapAndOtherFloorsDoNot() {
+        var lower = box(name: "Anna", x: 0, z: 0, width: 4, depth: 3.2)
+        lower.floor = 0
+        var upper = box(name: "Anna", x: 0, z: 0, width: 4, depth: 3.2)
+        upper.floor = 1
+        let stacked = RoomAlignment.align(
+            rooms: [lower, upper],
+            placedPlans: [lower.floorPlan, lower.floorPlan]
+        )
+        XCTAssertTrue(stacked.overlaps.isEmpty)
+        XCTAssertTrue(stacked.suppressedRoomIds.isEmpty)
+
+        var again = box(name: "Anna", x: 0, z: 0, width: 4, depth: 3.2)
+        again.floor = 0
+        let slipped = RigidYaw(yaw: 6 * .pi / 180, translation: Vec3(x: 0.12, y: 0, z: 0.08))
+        let sameFloor = RoomAlignment.align(
+            rooms: [lower, again],
+            placedPlans: [lower.floorPlan, again.floorPlan.transformed(by: slipped)]
+        )
+        XCTAssertEqual(sameFloor.overlaps.map(\.kind), [.duplicate])
+        XCTAssertEqual(sameFloor.suppressedRoomIds, [again.id])
+    }
+
+    func testAlignmentMovesFurnitureViewpointAndPlatesTogether() {
+        let rigid = RigidYaw(yaw: .pi / 2, translation: Vec3(x: 3, y: 0, z: -1))
+        var chair = PlacedFurniture.placed(catalogId: "sofa", x: 1, z: 0.4)
+        chair.yaw = 0.3
+        let movedChair = chair.transformed(by: rigid)
+        let chairPoint = rigid.applying(chair.position)
+        XCTAssertEqual(movedChair.position.x, chairPoint.x, accuracy: 1e-9)
+        XCTAssertEqual(movedChair.position.z, chairPoint.z, accuracy: 1e-9)
+        XCTAssertEqual(movedChair.yaw, chair.yaw + rigid.yaw, accuracy: 1e-9)
+        XCTAssertEqual(movedChair.scale, chair.scale)
+
+        let camera = CameraViewpoint(
+            position: Vec3(x: 0.2, y: 2.4, z: 4),
+            target: Vec3(x: 1, y: 1, z: 0.4),
+            fieldOfView: 48
+        )
+        let movedCamera = camera.transformed(by: rigid)
+        XCTAssertEqual(movedCamera.position.x, rigid.applying(camera.position).x, accuracy: 1e-9)
+        XCTAssertEqual(movedCamera.target.z, rigid.applying(camera.target).z, accuracy: 1e-9)
+        let restored = movedCamera.transformed(by: rigid.inverse())
+        XCTAssertEqual(restored.position.x, camera.position.x, accuracy: 1e-6)
+        XCTAssertEqual(restored.target.z, camera.target.z, accuracy: 1e-6)
+
+        var room = box(name: "Bedroom", x: 0, z: 0, width: 4, depth: 3)
+        room.viewpoint = camera
+        let pin = DevicePin.placed(in: room.id, kind: .light, x: 1, z: 0.4, name: "Lamp")
+        let plain = PlateCatalog.manifest(for: room, pins: [pin])
+        let aligned = PlateCatalog.manifest(for: room, pins: [pin], placement: rigid)
+        let plainRegion = plain.day.lights.first?.region
+        let alignedRegion = aligned.day.lights.first?.region
+        XCTAssertEqual(alignedRegion?.x ?? -1, plainRegion?.x ?? -2, accuracy: 1e-5)
+        XCTAssertEqual(alignedRegion?.y ?? -1, plainRegion?.y ?? -2, accuracy: 1e-5)
+        XCTAssertNotNil(plainRegion)
+        XCTAssertEqual(aligned.viewpoint.position.x, movedCamera.position.x, accuracy: 1e-6)
+    }
+
+    func testPlanEditStaysInScanSpaceAndTheAlignMoveStillApplies() {
+        let room = box(name: "Bedroom", x: 0, z: 0, width: 4, depth: 3)
+        let handle = PlanHandle.edge(.maxU)
+        guard let frame = PlanEditor.box(of: room.floorPlan) else {
+            return XCTFail("Expected a room box")
+        }
+        let outward = frame.point(handle) + frame.axisU.scaled(0.6)
+        let edited = PlanEditor.resize(room.floorPlan, handle: handle, to: outward)
+        XCTAssertGreaterThan(PlanEditor.box(of: edited.plan)?.width ?? 0, frame.width + 0.4)
+        let rigid = RigidYaw(yaw: 0.4, translation: Vec3(x: 2, y: 0, z: 1))
+        let moved = edited.plan.transformed(by: rigid)
+        let storedAgain = moved.transformed(by: rigid.inverse())
+        let restoredWidth = PlanEditor.box(of: storedAgain)?.width ?? 0
+        XCTAssertEqual(restoredWidth, PlanEditor.box(of: edited.plan)?.width ?? -1, accuracy: 1e-6)
+        var chair = PlacedFurniture.placed(catalogId: "bed", x: 1, z: 1)
+        let camera = CameraViewpoint(position: Vec3(x: 0, y: 2, z: 5), target: Vec3(x: 2, y: 1, z: 1.5))
+        XCTAssertEqual(chair.transformed(by: rigid).position.x, rigid.applying(chair.position).x, accuracy: 1e-9)
+        XCTAssertEqual(camera.transformed(by: rigid).target.x, rigid.applying(camera.target).x, accuracy: 1e-9)
+    }
+
     func testOldStructureWithoutPlacementsStillDecodes() throws {
         let json = """
         {"format":"roomscan.home","version":1,"home":{

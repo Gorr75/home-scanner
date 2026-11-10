@@ -102,6 +102,14 @@ public struct PlacedFurniture: Codable, Equatable, Identifiable, Sendable {
         self.replacesObjectId = replacesObjectId
     }
 
+    /// Moves a catalog item with the room. Yaw is added; scale stays put.
+    public func transformed(by rigid: RigidYaw) -> PlacedFurniture {
+        var copy = self
+        copy.position = rigid.applying(position)
+        copy.yaw += rigid.yaw
+        return copy
+    }
+
     public static func placed(catalogId: String, x: Double, z: Double, y: Double = 0) -> PlacedFurniture {
         PlacedFurniture(
             id: UUID(),

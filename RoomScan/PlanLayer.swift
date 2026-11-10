@@ -44,7 +44,15 @@ enum PlanLayers {
     }
 
     static func single(_ room: Room) -> [PlanLayer] {
-        [PlanLayer(id: room.id, name: room.name, plan: room.floorPlan, offset: .zero, tintIndex: 0)]
+        [PlanLayer(
+            id: room.id,
+            name: room.name,
+            plan: room.floorPlan,
+            offset: .zero,
+            tintIndex: 0,
+            furniture: room.placedFurniture,
+            flooring: room.flooring
+        )]
     }
 
     static func overview(_ plan: FloorPlan, name: String) -> [PlanLayer] {
@@ -82,7 +90,7 @@ enum PlanLayers {
                 plan: room.floorPlan.transformed(by: transform),
                 offset: offset,
                 tintIndex: index,
-                furniture: room.placedFurniture.map { moved($0, by: transform) },
+                furniture: room.placedFurniture.map { $0.transformed(by: transform) },
                 flooring: room.flooring,
                 placement: transform
             )
@@ -91,13 +99,6 @@ enum PlanLayers {
 
     private static func placed(_ home: Home, _ applied: RoomAlignmentResult) -> [PlanLayer] {
         aligned(home.rooms, applied: applied)
-    }
-
-    private static func moved(_ item: PlacedFurniture, by rigid: RigidYaw) -> PlacedFurniture {
-        var copy = item
-        copy.position = rigid.applying(item.position)
-        copy.yaw += rigid.yaw
-        return copy
     }
 
     static func storedPoint(_ point: Vec3, in layer: PlanLayer) -> Vec3 {

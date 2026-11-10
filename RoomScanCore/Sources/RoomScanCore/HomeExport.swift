@@ -140,12 +140,18 @@ public enum HomeExport {
         }
         let glb: Data
         let usdz: Data?
+        // Furniture, flooring, and a stacked dollhouse are drawn from the room plans,
+        // so a wall edit is in the same model. A merged shell is used only while each
+        // scan still has its own origin and nobody has furnished the home.
         if HomeFurnishing.needsExport(home) {
             let drawn = HomeFurnishing.layers(for: home, stacked: FloorStack.hasStackedFloors(home))
             glb = FloorPlanGLB.data(for: drawn, textures: textures)
             usdz = FurnishedUSDZ.data(layers: drawn)
                 ?? home.structure?.usdz.flatMap { usdzFiles[$0] }
-        } else if textures.isEmpty, let overview = home.structure?.overviewFloorPlan, !overview.isEmpty {
+        } else if textures.isEmpty,
+                  !home.coordinatesAreUnified,
+                  let overview = home.structure?.overviewFloorPlan,
+                  !overview.isEmpty {
             glb = FloorPlanGLB.data(for: overview)
             usdz = home.structure?.usdz.flatMap { usdzFiles[$0] }
         } else if textures.isEmpty {
