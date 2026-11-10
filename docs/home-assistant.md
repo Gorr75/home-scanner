@@ -59,6 +59,21 @@ Each LiDAR scan starts at its own origin. Pins use that room's coordinates. Afte
 | `floor_plan` | Walls, openings, floors, and objects in that room's scan space. |
 | `assets.usdz` | Optional path relative to the home folder, for example `rooms/<id>.usdz`. |
 | `assets.captured_room` | Optional path of Apple's encoded `CapturedRoom` JSON. |
+| `floor` | Optional storey index. `0` is the ground floor, positive is up, negative is below. Omitted when the room has no floor. The card and the dollhouse both read this field. There is no separate `level` or `floor_name`. |
+| `viewpoint` | Optional camera saved from the 3D view, in that room's scan space. `position` and `target` are meters. `field_of_view` is degrees. Omitted until someone taps Save viewpoint. |
+| `flooring` | Optional finish: `oak`, `walnut`, `tile`, `stone`, `carpet`, `concrete`, `herringbone`, or `painted`. A scan photo still covers the floor when one exists. |
+| `furniture` | Optional catalog items. Omitted when the room has none. |
+
+### `furniture[]`
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable placement id. |
+| `catalog_id` | Catalog token such as `sofa`, `dining_chair`, `bed`, `floor_lamp`, `plant`, `rug`, `television`. |
+| `position` | Center of the bottom face, in the room's scan space. |
+| `yaw` | Radians around Y. `0` means the item's width runs along +X. |
+| `scale` | Multiplier on the catalog item's width, height, and depth. |
+| `replaces_object_id` | Optional id of a RoomPlan `objects[]` box this item stands in for. The box stays in the plan and is hidden while this is set. |
 
 `assets` is `{}` when the room has no sidecar files. Paths inside it are for this phone. An integration that only draws the plan and the pins can ignore them. Reject any path that is absolute or contains `..`.
 
@@ -126,6 +141,18 @@ Present after a multi-room combine, and on the sample apartment.
 | --- | --- | --- |
 | Home UUID | Full `roomscan.home` document, `model.glb`, optional `model.usdz` | `/local/home_scanner/<home-id>/layout.json` and `model.glb` |
 | Room UUID | The same document reduced to that room and its pins, plus that room's `model.glb` | `/local/home_scanner/<room-id>/layout.json` and `model.glb` |
+
+A room folder may also contain photo plates. They are optional. An upload that only sends `layout.json` and `model.glb` still works.
+
+```text
+/local/home_scanner/<room-id>/plates/manifest.json
+/local/home_scanner/<room-id>/plates/day/base.jpg
+/local/home_scanner/<room-id>/plates/day/<pin-id>.png
+/local/home_scanner/<room-id>/plates/night/base.jpg
+/local/home_scanner/<room-id>/plates/night/<pin-id>.png
+```
+
+`manifest.json` is `home_scanner.plates` version 1. The base image is the room with every light off. Each light image is that lamp's contribution, for the card to screen-blend. Day and night are separate sets. The whole-home folder does not carry plates; each room folder does.
 
 `model.glb` is Y-up meters. A room file matches that room's scan. The home file uses the aligned shell when a combine has produced one, and otherwise lays rooms out side by side. A card that draws pins on the model should use the room folder.
 

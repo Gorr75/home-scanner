@@ -203,13 +203,23 @@ public struct PlanSplit: Equatable, Sendable {
     public var frame: PlanBox
     public var axis: PlanFrameAxis
     public var mid: Double
+    /// Ids of walls, openings, floors, and scan objects that moved to the new room.
+    public var movedIDs: [UUID: UUID]
 
-    public init(kept: FloorPlan, created: FloorPlan, frame: PlanBox, axis: PlanFrameAxis, mid: Double) {
+    public init(
+        kept: FloorPlan,
+        created: FloorPlan,
+        frame: PlanBox,
+        axis: PlanFrameAxis,
+        mid: Double,
+        movedIDs: [UUID: UUID] = [:]
+    ) {
         self.kept = kept
         self.created = created
         self.frame = frame
         self.axis = axis
         self.mid = mid
+        self.movedIDs = movedIDs
     }
 
     /// The new room is the high side of the cut. Points on the cut stay with the original room.
@@ -477,8 +487,41 @@ public enum PlanEditor {
         let mid = axis == .u ? (box.minU + box.maxU) / 2 : (box.minV + box.maxV) / 2
         let kept = half(plan, box: box, axis: axis, mid: mid, keepLow: true, makeID: makeID, keepIDs: true)
         let created = half(plan, box: box, axis: axis, mid: mid, keepLow: false, makeID: makeID, keepIDs: false)
-        guard !kept.walls.isEmpty, !created.walls.isEmpty else { return nil }
-        return PlanSplit(kept: kept, created: created, frame: box, axis: axis, mid: mid)
+        guard !kept.plan.walls.isEmpty, !created.plan.walls.isEmpty else { return nil }
+        return PlanSplit(
+            kept: kept.plan,
+            created: created.plan,
+            frame: box,
+            axis: axis,
+            mid: mid,
+            movedIDs: created.movedIDs
+        )
+    }
+
+    /// Cuts one room into two. The new room keeps the parent's floor and flooring.
+    /// The saved viewpoint stays on the original room. Furniture follows the half that contains it.
+    public static func splitRoom(
+        _ room: Room,
+        newID: UUID,
+        name: String,
+        createdAt: Date,
+        makeID: @escaping () -> UUID = { UUID() }
+    ) -> (kept: Room, created: Room, plan: PlanSplit)? {
+        guard let plan = split(room.floorPlan, makeID: makeID) else { return nil }
+        let pieces = reassignedFurniture(room.placedFurniture, split: plan)
+        var kept = room
+        kept.floorPlan = plan.kept
+        kept.placedFurniture = pieces.kept
+        let created = Room(
+            id: newID,
+            name: name,
+            createdAt: createdAt,
+            floorPlan: plan.created,
+            floor: room.floor,
+            flooring: room.flooring,
+            furniture: pieces.created.isEmpty ? nil : pieces.created
+        )
+        return (kept, created, plan)
     }
 
     public static func reassignedPins(
@@ -495,6 +538,33 @@ public enum PlanEditor {
             copy.roomId = newRoomID
             return copy
         }
+    }
+
+    /// Furniture stays on the half that contains its floor position.
+    /// A catalog item that replaced a scan box keeps that link only when the box stayed in the same half.
+    public static func reassignedFurniture(
+        _ items: [PlacedFurniture],
+        split: PlanSplit
+    ) -> (kept: [PlacedFurniture], created: [PlacedFurniture]) {
+        var kept: [PlacedFurniture] = []
+        var created: [PlacedFurniture] = []
+        for item in items {
+            var copy = item
+            let onCreated = split.containsCreated(x: item.position.x, z: item.position.z)
+            if let replaced = copy.replacesObjectId {
+                if onCreated, let moved = split.movedIDs[replaced] {
+                    copy.replacesObjectId = moved
+                } else if onCreated || split.movedIDs[replaced] != nil {
+                    copy.replacesObjectId = nil
+                }
+            }
+            if onCreated {
+                created.append(copy)
+            } else {
+                kept.append(copy)
+            }
+        }
+        return (kept, created)
     }
 }
 
@@ -906,7 +976,7 @@ fileprivate extension PlanEditor {
         keepLow: Bool,
         makeID: () -> UUID,
         keepIDs: Bool
-    ) -> FloorPlan {
+    ) -> (plan: FloorPlan, movedIDs: [UUID: UUID]) {
         var walls = plan.walls.compactMap { wall -> WallSegment? in
             guard let clipped = clipSegment(wall.start, wall.end, box: box, axis: axis, mid: mid, keepLow: keepLow) else {
                 return nil
@@ -968,11 +1038,11 @@ fileprivate extension PlanEditor {
             }
             var result = FloorPlan(walls: walls, openings: openings, floors: floors, objects: remappedObjects)
             addDivider(to: &result, box: box, axis: axis, mid: mid, makeID: makeID)
-            return result
+            return (result, ids)
         }
         var result = FloorPlan(walls: walls, openings: openings, floors: floors, objects: objects)
         addDivider(to: &result, box: box, axis: axis, mid: mid, makeID: makeID)
-        return result
+        return (result, [:])
     }
 
     static func keepPoint(

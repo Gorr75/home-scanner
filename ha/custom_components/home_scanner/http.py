@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 
 from .catalog import publish_index
 from .const import ALLOWED_FILES, DOMAIN, EVENT_LAYOUT_UPDATED, MAX_BYTES
-from .paths import destination_dir, safe_slug
+from .paths import accepted_upload_name, destination_dir, safe_slug, upload_destination
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,9 +81,9 @@ class UploadView(HomeAssistantView):
             if part is None:
                 break
             filename = part.filename
-            if filename not in ALLOWED_FILES:
+            if not accepted_upload_name(filename):
                 return self.json_message(
-                    "Only layout.json, model.glb, and model.usdz are accepted.",
+                    "Only layout.json, model.glb, model.usdz, and plates/ files are accepted.",
                     400,
                 )
             payload = await _read_limited(part, MAX_BYTES - total)
@@ -96,6 +96,9 @@ class UploadView(HomeAssistantView):
             return self.json_message("layout.json is required.", 400)
         if not _is_json(files["layout.json"]):
             return self.json_message("layout.json is not JSON.", 400)
+        manifest = files.get("plates/manifest.json")
+        if manifest is not None and not _is_json(manifest):
+            return self.json_message("plates/manifest.json is not JSON.", 400)
 
         try:
             written = await hass.async_add_executor_job(
@@ -158,11 +161,14 @@ def _write_files(config_dir: str, slug: str, files: dict[str, bytes]) -> list[st
     folder = destination_dir(config_dir, slug)
     os.makedirs(folder, exist_ok=True)
     written: list[str] = []
-    for name in ALLOWED_FILES:
+    ordered = [name for name in ALLOWED_FILES if name in files]
+    ordered.extend(sorted(name for name in files if name not in ALLOWED_FILES))
+    for name in ordered:
         payload = files.get(name)
         if payload is None:
             continue
-        target = os.path.join(folder, name)
+        target = upload_destination(folder, name)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
         temporary = target + ".tmp"
         with open(temporary, "wb") as handle:
             handle.write(payload)

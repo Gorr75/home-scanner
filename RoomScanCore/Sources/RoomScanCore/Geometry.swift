@@ -122,7 +122,7 @@ public enum FloorPlanGeometry {
         return local.map { transform.applying($0) }
     }
 
-    public static func bounds(of plan: FloorPlan) -> AABB {
+    public static func bounds(of plan: FloorPlan, furniture: [PlacedFurniture] = []) -> AABB {
         var points: [Vec3] = []
         for wall in plan.walls {
             points.append(wall.start)
@@ -142,6 +142,13 @@ public enum FloorPlanGeometry {
                 points.append(corner)
                 points.append(Vec3(x: corner.x, y: object.center.y + halfY, z: corner.z))
                 points.append(Vec3(x: corner.x, y: object.center.y - halfY, z: corner.z))
+            }
+        }
+        for item in furniture {
+            let size = FurnitureGeometry.worldSize(of: item)
+            for corner in FurnitureGeometry.footprint(of: item) {
+                points.append(corner)
+                points.append(Vec3(x: corner.x, y: item.position.y + size.y, z: corner.z))
             }
         }
         guard let first = points.first else {
@@ -225,12 +232,36 @@ public enum FloorPlanLayout {
         coordinatesAreUnified: Bool,
         gap: Double = 0.8
     ) -> [RoomFrame] {
+        let floors = Set(rooms.map(\.floor))
+        if floors.count <= 1 {
+            return row(rooms, coordinatesAreUnified: coordinatesAreUnified, gap: gap)
+        }
+        // Each storey is laid out on its own, so a copied floor sits on the one below.
+        // Unassigned rooms stay in their own group and are not treated as floor 0.
+        let ordered = floors.sorted { lhs, rhs in
+            switch (lhs, rhs) {
+            case let (left?, right?): return left < right
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return false
+            }
+        }
+        return ordered.flatMap { floor in
+            row(rooms.filter { $0.floor == floor }, coordinatesAreUnified: coordinatesAreUnified, gap: gap)
+        }
+    }
+
+    private static func row(
+        _ rooms: [Room],
+        coordinatesAreUnified: Bool,
+        gap: Double
+    ) -> [RoomFrame] {
         if coordinatesAreUnified || rooms.count <= 1 {
             return rooms.map { RoomFrame(roomId: $0.id, offset: .zero) }
         }
         var cursor = 0.0
         return rooms.map { room in
-            let box = FloorPlanGeometry.bounds(of: room.floorPlan)
+            let box = FloorPlanGeometry.bounds(of: room.floorPlan, furniture: room.placedFurniture)
             let offset = Vec3(x: cursor - box.min.x, y: 0, z: -box.min.z)
             cursor += max(box.size.x, 0.5) + gap
             return RoomFrame(roomId: room.id, offset: offset)

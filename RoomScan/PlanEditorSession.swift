@@ -34,22 +34,22 @@ final class PlanEditorSession {
 
     func split(_ home: Home) -> Home? {
         guard let roomID = selectedRoomID,
-              let index = home.rooms.firstIndex(where: { $0.id == roomID }),
-              let split = PlanEditor.split(home.rooms[index].floorPlan) else {
+              let index = home.rooms.firstIndex(where: { $0.id == roomID }) else {
             return nil
         }
+        let parent = home.rooms[index]
+        let newID = UUID()
+        guard let parts = PlanEditor.splitRoom(
+            parent,
+            newID: newID,
+            name: nextName(parent.name, in: home.rooms),
+            createdAt: Date()
+        ) else { return nil }
         record(home)
         var edited = home
-        let newID = UUID()
-        edited.rooms[index].floorPlan = split.kept
-        let created = Room(
-            id: newID,
-            name: nextName(edited.rooms[index].name, in: edited.rooms),
-            createdAt: Date(),
-            floorPlan: split.created
-        )
-        edited.rooms.insert(created, at: index + 1)
-        edited.pins = PlanEditor.reassignedPins(edited.pins, from: roomID, to: newID, split: split)
+        edited.rooms[index] = parts.kept
+        edited.rooms.insert(parts.created, at: index + 1)
+        edited.pins = PlanEditor.reassignedPins(edited.pins, from: roomID, to: newID, split: parts.plan)
         selectedOpeningID = nil
         return edited
     }

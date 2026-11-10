@@ -57,31 +57,27 @@ struct HomeDetailView: View {
                     } footer: {
                         Text(layoutCaption(home))
                     }
-                    Section("Rooms") {
+                    roomSections(home)
+                    Section {
                         if home.rooms.isEmpty {
-                            Text("Scan the kitchen, then the rooms that open off it.")
+                            Text("Scan a room, then stack another floor on top of it.")
                                 .foregroundStyle(Theme.secondary)
-                        }
-                        ForEach(home.rooms) { room in
-                            NavigationLink(value: AppRoute.room(home: home.id, room: room.id)) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(room.name)
-                                    Text(roomCaption(room, in: home))
-                                        .font(.caption)
-                                        .foregroundStyle(Theme.secondary)
-                                }
-                            }
-                            .swipeActions {
-                                Button("Delete", role: .destructive) { pendingRoom = room }
-                            }
-                        }
-                        if LiDARSupport.canScan {
+                        } else {
                             Button {
-                                scanning = true
+                                mutate { _ = $0.addCopiedFloor() }
                             } label: {
-                                Label("Scan a room", systemImage: "viewfinder")
+                                Label("New floor from the one below", systemImage: "square.on.square")
+                            }
+                            Button {
+                                mutate { _ = $0.addFootprintFloor() }
+                            } label: {
+                                Label("New floor as one room", systemImage: "square.dashed")
                             }
                         }
+                    } header: {
+                        Text("Another floor")
+                    } footer: {
+                        Text("Uses the same floor number the card reads. A copied floor keeps the walls so the next storey lines up. One room uses that floor’s footprint. Open the 3D model and choose Dollhouse to see them stacked.")
                     }
                     Section {
                         if capturedCount(home) >= 2 {
@@ -237,6 +233,11 @@ struct HomeDetailView: View {
     }
 
     private func previewLayers(_ home: Home) -> [PlanLayer] {
+        if FloorStack.hasStackedFloors(home) {
+            let level = FloorGrouping.groups(in: home.rooms).first?.level
+            let rooms = home.rooms.filter { $0.floor == level }
+            return PlanLayers.rooms(rooms, unified: home.coordinatesAreUnified)
+        }
         if let overview = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return PlanLayers.overview(overview, name: home.name)
         }
@@ -247,17 +248,70 @@ struct HomeDetailView: View {
         if let _ = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return "The thumbnail is the aligned shell. Device pins stay in each room's own scan."
         }
+        if FloorStack.hasStackedFloors(home) {
+            let count = Set(home.rooms.compactMap(\.floor)).count
+            return "\(count) floors. The thumbnail is the lowest one. The 3D model can show the dollhouse."
+        }
         if home.coordinatesAreUnified {
             return "Drag to orbit the 3D model. The floor plan is the same measurement, seen from above."
         }
         return "Each scan still has its own origin. Combine them after two LiDAR passes through a shared door."
     }
 
+    @ViewBuilder
+    private func roomSections(_ home: Home) -> some View {
+        if home.rooms.isEmpty {
+            Section("Rooms") {
+                Text("Scan the kitchen, then the rooms that open off it.")
+                    .foregroundStyle(Theme.secondary)
+                scanButton
+            }
+        } else {
+            let groups = FloorGrouping.groups(in: home.rooms)
+            let plain = groups.count == 1 && groups[0].level == nil
+            ForEach(groups) { group in
+                Section(plain ? "Rooms" : FloorGrouping.label(for: group.level)) {
+                    ForEach(group.rooms) { room in
+                        NavigationLink(value: AppRoute.room(home: home.id, room: room.id)) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(room.name)
+                                Text(roomCaption(room, in: home))
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.secondary)
+                            }
+                        }
+                        .swipeActions {
+                            Button("Delete", role: .destructive) { pendingRoom = room }
+                        }
+                    }
+                    if group.id == groups.last?.id {
+                        scanButton
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var scanButton: some View {
+        if LiDARSupport.canScan {
+            Button {
+                scanning = true
+            } label: {
+                Label("Scan a room", systemImage: "viewfinder")
+            }
+        }
+    }
+
     private func roomCaption(_ room: Room, in home: Home) -> String {
         let devices = home.pins(in: room.id).count
         let deviceText = devices == 1 ? "1 device" : "\(devices) devices"
         let source = room.assets.capturedRoom == nil ? "Drawn plan" : "LiDAR scan"
-        return "\(source) · \(deviceText)"
+        let floor = room.floor.map { "\(FloorGrouping.label(for: $0)) · " } ?? ""
+        let finish = room.flooring.map { " · \($0.title)" } ?? ""
+        let pieces = room.placedFurniture.count
+        let furniture = pieces == 0 ? "" : (pieces == 1 ? " · 1 piece" : " · \(pieces) pieces")
+        return "\(floor)\(source) · \(deviceText)\(finish)\(furniture)"
     }
 
     private func capturedCount(_ home: Home) -> Int {

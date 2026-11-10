@@ -64,13 +64,23 @@ public struct ScanPackage: Equatable, Sendable {
     public var layoutJSON: Data
     public var modelGLB: Data
     public var modelUSDZ: Data?
+    /// Photo plates for a one-room folder. Empty for a whole-home package and for older uploads.
+    public var plates: [HomeScannerFile]
 
-    public init(slug: String, title: String, layoutJSON: Data, modelGLB: Data, modelUSDZ: Data? = nil) {
+    public init(
+        slug: String,
+        title: String,
+        layoutJSON: Data,
+        modelGLB: Data,
+        modelUSDZ: Data? = nil,
+        plates: [HomeScannerFile] = []
+    ) {
         self.slug = slug
         self.title = title
         self.layoutJSON = layoutJSON
         self.modelGLB = modelGLB
         self.modelUSDZ = modelUSDZ
+        self.plates = plates
     }
 
     public var files: [HomeScannerFile] {
@@ -78,7 +88,14 @@ public struct ScanPackage: Equatable, Sendable {
         if let modelUSDZ {
             items.append(.modelUSDZ(modelUSDZ))
         }
+        items.append(contentsOf: plates)
         return items
+    }
+
+    public func withPlates(_ plates: [HomeScannerFile]) -> ScanPackage {
+        var copy = self
+        copy.plates = plates
+        return copy
     }
 
     public var zipEntries: [(path: String, data: Data)] {
@@ -123,13 +140,18 @@ public enum HomeExport {
         }
         let glb: Data
         let usdz: Data?
-        // A merged shell is the home model only while each scan still has its own
-        // origin. Once rooms share coordinates, the home model is those room plans,
-        // so a hand edit is what upload writes into model.glb.
-        if textures.isEmpty,
-           !home.coordinatesAreUnified,
-           let overview = home.structure?.overviewFloorPlan,
-           !overview.isEmpty {
+        // Furniture, flooring, and a stacked dollhouse are drawn from the room plans,
+        // so a wall edit is in the same model. A merged shell is used only while each
+        // scan still has its own origin and nobody has furnished the home.
+        if HomeFurnishing.needsExport(home) {
+            let drawn = HomeFurnishing.layers(for: home, stacked: FloorStack.hasStackedFloors(home))
+            glb = FloorPlanGLB.data(for: drawn, textures: textures)
+            usdz = FurnishedUSDZ.data(layers: drawn)
+                ?? home.structure?.usdz.flatMap { usdzFiles[$0] }
+        } else if textures.isEmpty,
+                  !home.coordinatesAreUnified,
+                  let overview = home.structure?.overviewFloorPlan,
+                  !overview.isEmpty {
             glb = FloorPlanGLB.data(for: overview)
             usdz = home.structure?.usdz.flatMap { usdzFiles[$0] }
         } else if textures.isEmpty {
@@ -161,11 +183,18 @@ public enum HomeExport {
             structure: nil
         )
         let layers = [(room.floorPlan, Vec3.zero)]
-        let glb = FloorPlanGLB.data(for: room.floorPlan, textures: textures)
+        let glb: Data
         let usdz: Data?
-        if textures.isEmpty {
+        if HomeFurnishing.needsExport(room) {
+            let drawn = [HomeFurnishing.layer(for: room)]
+            glb = FloorPlanGLB.data(for: drawn, textures: textures)
+            usdz = FurnishedUSDZ.data(layers: drawn)
+                ?? room.assets.usdz.flatMap { usdzFiles[$0] }
+        } else if textures.isEmpty {
+            glb = FloorPlanGLB.data(for: room.floorPlan, textures: textures)
             usdz = room.assets.usdz.flatMap { usdzFiles[$0] }
         } else {
+            glb = FloorPlanGLB.data(for: room.floorPlan, textures: textures)
             usdz = TexturedUSDZ.data(layers: layers, textures: textures)
                 ?? room.assets.usdz.flatMap { usdzFiles[$0] }
         }

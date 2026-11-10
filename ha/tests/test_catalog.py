@@ -70,6 +70,29 @@ class CatalogTests(unittest.TestCase):
             with open(stored, encoding="utf-8") as handle:
                 self.assertEqual(json.load(handle)["rooms"][0]["name"], "Kitchen")
 
+    def test_single_room_floor_is_indexed_and_whole_homes_are_not(self):
+        one = {"home": {"rooms": [{"name": "Kitchen", "floor": 0}]}}
+        self.assertEqual(_CATALOG.room_floor(one), 0)
+        self.assertEqual(_CATALOG.room_floor({"home": {"rooms": [{"floor": False}]}}), None)
+        one["home"]["rooms"].append({"name": "Hall", "floor": 1})
+        self.assertIsNone(_CATALOG.room_floor(one))
+        with tempfile.TemporaryDirectory() as config:
+            slug = "6F0C2A10-4B1E-4E0A-9C11-000000000010"
+            folder = _PATHS.destination_dir(config, slug)
+            os.makedirs(os.path.join(folder, "plates"))
+            layout = {
+                "format": "roomscan.home",
+                "version": 1,
+                "home": {"name": "Sample", "rooms": [{"name": "Kitchen", "floor": 2}]},
+            }
+            with open(os.path.join(folder, "layout.json"), "w", encoding="utf-8") as handle:
+                json.dump(layout, handle)
+            with open(os.path.join(folder, "plates", "manifest.json"), "w", encoding="utf-8") as handle:
+                handle.write("{}")
+            room = _CATALOG.scan_index(config)["rooms"][0]
+            self.assertEqual(room["floor"], 2)
+            self.assertIn("plates/manifest.json", room["files"])
+
     def test_unsafe_folder_names_are_skipped(self):
         with tempfile.TemporaryDirectory() as config:
             root = os.path.join(config, "www", "home_scanner")

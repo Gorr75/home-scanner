@@ -238,6 +238,83 @@ final class PlanEditorTests: XCTestCase {
         XCTAssertTrue(split.containsCreated(x: 2, z: 1))
     }
 
+    func testSplitKeepsFloorFlooringAndViewpointAndFollowsFurniture() throws {
+        var plan = kitchen()
+        let eastObject = UUID()
+        plan.objects.append(
+            PlacedObject(
+                id: eastObject,
+                category: "chair",
+                center: Vec3(x: 3, y: 0.4, z: 1.2),
+                dimensions: Vec3(x: 0.5, y: 0.8, z: 0.5),
+                yaw: 0
+            )
+        )
+        let viewpoint = CameraViewpoint(
+            position: Vec3(x: 1, y: 2, z: 4),
+            target: Vec3(x: 1.8, y: 1, z: 1.6)
+        )
+        let room = Room(
+            id: SampleApartment.kitchenID,
+            name: "Kitchen",
+            createdAt: SampleApartment.createdAt,
+            floorPlan: plan,
+            floor: 1,
+            viewpoint: viewpoint,
+            flooring: .oak,
+            furniture: [
+                PlacedFurniture.placed(catalogId: "sofa", x: 0.5, z: 1),
+                PlacedFurniture(
+                    id: SampleApartment.id(0x61),
+                    catalogId: "plant",
+                    position: Vec3(x: 3, y: 0, z: 1.2),
+                    yaw: 0,
+                    replacesObjectId: eastObject
+                ),
+                PlacedFurniture(
+                    id: SampleApartment.id(0x62),
+                    catalogId: "sofa",
+                    position: Vec3(x: 0.4, y: 0, z: 2.4),
+                    yaw: 0,
+                    replacesObjectId: SampleApartment.id(0x17)
+                )
+            ]
+        )
+        let parts = try XCTUnwrap(PlanEditor.splitRoom(
+            room,
+            newID: SampleApartment.id(0x40),
+            name: "Kitchen 2",
+            createdAt: room.createdAt
+        ))
+        XCTAssertEqual(parts.kept.floor, 1)
+        XCTAssertEqual(parts.kept.flooring, .oak)
+        XCTAssertEqual(parts.kept.viewpoint, viewpoint)
+        XCTAssertEqual(parts.created.floor, 1)
+        XCTAssertEqual(parts.created.flooring, .oak)
+        XCTAssertNil(parts.created.viewpoint)
+        XCTAssertEqual(parts.created.id, SampleApartment.id(0x40))
+        XCTAssertEqual(parts.kept.placedFurniture.map(\.id).sorted { $0.uuidString < $1.uuidString }.count, 2)
+        XCTAssertTrue(parts.kept.placedFurniture.contains { $0.replacesObjectId == SampleApartment.id(0x17) })
+        let plant = try XCTUnwrap(parts.created.placedFurniture.first)
+        XCTAssertEqual(plant.catalogId, "plant")
+        let movedChair = try XCTUnwrap(parts.created.floorPlan.objects.first { $0.category == "chair" })
+        XCTAssertEqual(plant.replacesObjectId, movedChair.id)
+        XCTAssertNotEqual(movedChair.id, eastObject)
+        XCTAssertFalse(parts.kept.floorPlan.objects.contains { $0.id == eastObject })
+
+        var home = SampleApartment.make()
+        home.rooms[0] = parts.kept
+        home.rooms.append(parts.created)
+        let document = try HomeLayoutDocument.decode(try HomeLayoutDocument(home: home).encode())
+        let kept = try XCTUnwrap(document.home.rooms.first { $0.id == SampleApartment.kitchenID })
+        let created = try XCTUnwrap(document.home.rooms.first { $0.id == SampleApartment.id(0x40) })
+        XCTAssertEqual(kept.floor, 1)
+        XCTAssertEqual(kept.viewpoint, viewpoint)
+        XCTAssertEqual(created.floor, 1)
+        XCTAssertEqual(created.flooring, .oak)
+        XCTAssertEqual(created.placedFurniture.count, 1)
+    }
+
     func testSplitMovesPinsOnTheNewHalf() throws {
         let split = try XCTUnwrap(PlanEditor.split(kitchen()))
         let pins = [
