@@ -42,7 +42,15 @@ enum PlanLayers {
     }
 
     static func single(_ room: Room) -> [PlanLayer] {
-        [PlanLayer(id: room.id, name: room.name, plan: room.floorPlan, offset: .zero, tintIndex: 0)]
+        [PlanLayer(
+            id: room.id,
+            name: room.name,
+            plan: room.floorPlan,
+            offset: .zero,
+            tintIndex: 0,
+            furniture: room.placedFurniture,
+            flooring: room.flooring
+        )]
     }
 
     static func overview(_ plan: FloorPlan, name: String) -> [PlanLayer] {
