@@ -17,6 +17,7 @@ struct HomeViewer: View {
     @State private var errorMessage: String?
     @State private var showHeat = false
     @State private var previewHour: Double?
+    @State private var planEditor = PlanEditorSession()
     @AppStorage(DaylightPreference.enabledKey) private var daylightEnabled = true
 
     private var home: Home? { store.home(id: homeID) }
@@ -62,13 +63,27 @@ struct HomeViewer: View {
         }
         .safeAreaInset(edge: .bottom) {
             if let home {
-                Text(caption(home))
-                    .font(.footnote)
-                    .foregroundStyle(Theme.mist)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Theme.charcoal)
+                VStack(spacing: 0) {
+                    if showsPlan {
+                        PlanEditorBar(
+                            canUndo: planEditor.canUndo,
+                            canRedo: planEditor.canRedo,
+                            canSplit: planEditor.canSplit(home),
+                            canCopy: planEditor.canCopy,
+                            onUndo: undoPlan,
+                            onRedo: redoPlan,
+                            onSplit: splitRoom,
+                            onCopy: copyOpening
+                        )
+                    }
+                    Text(caption(home))
+                        .font(.footnote)
+                        .foregroundStyle(Theme.mist)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Theme.charcoal)
+                }
             }
         }
         .task(id: home?.pins.map { "\($0.id.uuidString)|\($0.entityId ?? "")" }.joined(separator: ",") ?? "") {
@@ -109,7 +124,13 @@ struct HomeViewer: View {
                 onCharcoal: true,
                 onSelectPin: { selectedPinID = $0 },
                 onMovePin: { id, x, z in move(id, x: x, z: z) },
-                onCreate: { x, z in create(in: home, x: x, z: z, y: placeKind.defaultHeight) }
+                onCreate: { x, z in create(in: home, x: x, z: z, y: placeKind.defaultHeight) },
+                planEditing: !placing,
+                selectedRoomID: planEditor.selectedRoomID,
+                selectedOpeningID: planEditor.selectedOpeningID,
+                onSelectRoom: { planEditor.selectedRoomID = $0 },
+                onSelectOpening: { planEditor.selectedOpeningID = $0 },
+                onCommitPlan: { commitPlan(roomID: $0, plan: $1) }
             )
         } else {
             TimelineView(.periodic(from: .now, by: 30)) { timeline in
@@ -151,6 +172,9 @@ struct HomeViewer: View {
     }
 
     private func layers(_ home: Home) -> [PlanLayer] {
+        if showsPlan {
+            return PlanLayers.rooms(home.rooms, unified: home.coordinatesAreUnified)
+        }
         if let overview = home.structure?.overviewFloorPlan, !home.coordinatesAreUnified {
             return PlanLayers.overview(overview, name: home.name)
         }
@@ -172,7 +196,13 @@ struct HomeViewer: View {
             if showHeat {
                 return "Heatmap blends numeric sensor readings, such as temperature or signal level, across the pins."
             }
-            return placing ? "Tap the plan to place a \(placeKind.label.lowercased()). Drag a dot to move it." : "Drag the plan to pan. Pinch to zoom. Drag a device to move it."
+            if placing {
+                return "Tap the plan to place a \(placeKind.label.lowercased()). Drag a dot to move it."
+            }
+            if !home.coordinatesAreUnified && home.rooms.count > 1 {
+                return "Rooms sit side by side while each scan has its own origin. Tap a room, then drag a handle to resize it."
+            }
+            return "Tap a room, then drag a handle to resize it. Drag a door or window along its wall."
         }
         if renderedUSDZ {
             return "USDZ model. Tap a light, switch, or fan to toggle it. Drag to orbit, pinch to zoom."
@@ -230,6 +260,38 @@ struct HomeViewer: View {
     private func deletePin(_ id: UUID) {
         mutate { $0.deletePin(id: id) }
         if selectedPinID == id { selectedPinID = nil }
+    }
+
+    private func commitPlan(roomID: UUID, plan: FloorPlan) {
+        guard let home, let edited = planEditor.commit(roomID: roomID, plan: plan, in: home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func splitRoom() {
+        guard let home, let edited = planEditor.split(home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func copyOpening() {
+        guard let home, let edited = planEditor.copyOpening(in: home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func undoPlan() {
+        guard let home, let edited = planEditor.undo(home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func redoPlan() {
+        guard let home, let edited = planEditor.redo(home) else { return }
+        applyPlanEdit(edited)
+    }
+
+    private func applyPlanEdit(_ edited: Home) {
+        mutate { home in
+            home.rooms = edited.rooms
+            home.pins = edited.pins
+        }
     }
 
     private func mutate(_ body: (inout Home) -> Void) {

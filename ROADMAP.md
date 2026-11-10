@@ -2,7 +2,7 @@
 
 Phone upload to Home Assistant is live. The app reads entity state over REST and a WebSocket, and the optional `home_scanner` integration accepts `GET /api/home_scanner/health` and `POST /api/home_scanner/upload/{room}`. Layouts land at `/local/home_scanner/<id>/layout.json`, `model.glb`, and an optional `model.usdz`.
 
-The Lovelace card, live light colour in the 3D view, placing pins from areas, and daylight by time of day are in the app. v0.4, v0.5, and Later are what remains.
+The Lovelace card, live light colour in the 3D view, placing pins from areas, daylight by time of day, and the plan editor are in the app. v0.4 and Later are what remains.
 
 ## Now
 
@@ -32,13 +32,14 @@ v0.4 is the wall-tablet card and the path for people who furnish outside RoomPla
 
 ## v0.5
 
-v0.5 is a plan editor for geometry after the scan. RoomPlan still measures the room. These tools correct walls, doors, and windows by hand. They do not control devices.
+Done. RoomPlan still measures the room. These tools correct walls, doors, and windows by hand. They do not control devices.
 
-- **A room is a box with eight handles.** Tap a room, then drag an edge or a corner so the walls resize around the measured plan instead of staying frozen after the scan.
-- **Snap guides.** Dashed lines appear when a wall, door, or window lines up with another, so a hand edit meets the same grid the scan already implied.
-- **Split a room.** One button halves the room and inserts a door on the new wall, which is the usual way to turn one scanned volume into two.
-- **Slide a door or window along its wall.** The opening stays on the wall axis, and it snaps when it meets another opening or a corner.
-- **Copy an opening on the same wall.** A second door or window should start as a duplicate of the one you already placed, not as a new scan.
+- **A room is a box with eight handles.** Tap a room on the floor plan, then drag an edge or a corner. The walls resize around the measured plan, and doors and windows on a moved wall follow it.
+- **Snap guides.** Dashed lines appear when a wall, door, or window lines up with another, and the edit snaps within a small threshold.
+- **Split a room.** One button halves the room and inserts a door on the new wall, which turns one scanned volume into two.
+- **Slide a door or window along its wall.** The opening stays on the wall and snaps when it meets another opening or a corner.
+- **Copy an opening on the same wall.** The duplicate starts from the door or window you already placed.
+- **Undo and redo.** The edit is saved in the home. Sending to Home Assistant writes that geometry into `layout.json` and `model.glb`.
 
 ## Later
 

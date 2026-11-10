@@ -30,6 +30,15 @@ struct FloorPlanCanvas: View {
     var onSelectPin: (UUID?) -> Void = { _ in }
     var onMovePin: (UUID, Double, Double) -> Void = { _, _, _ in }
     var onCreate: (Double, Double) -> Void = { _, _ in }
+    /// Geometry edits: tap a room, drag a handle, slide an opening. Device pins stay separate.
+    var planEditing: Bool = false
+    var selectedRoomID: UUID?
+    var selectedOpeningID: UUID?
+    /// Other rooms in the same coordinate space, used when this canvas shows only one of them.
+    var extraSnapPlans: [FloorPlan] = []
+    var onSelectRoom: (UUID?) -> Void = { _ in }
+    var onSelectOpening: (UUID?) -> Void = { _ in }
+    var onCommitPlan: (UUID, FloorPlan) -> Void = { _, _ in }
 
     @State private var userScale: Double = 1
     @State private var userOffset = CGSize.zero
@@ -37,11 +46,31 @@ struct FloorPlanCanvas: View {
     @State private var dragMode: DragMode = .idle
     @State private var panOrigin = CGSize.zero
     @State private var movedDisplay: (id: UUID, x: Double, z: Double)?
+    @State private var editPreview: EditPreview?
+
+    private struct EditPreview {
+        var roomID: UUID
+        var plan: FloorPlan
+        var guides: [PlanGuide]
+    }
 
     private enum DragMode {
         case idle
         case pan
         case pin(UUID)
+        case handle(UUID, PlanHandle)
+        case opening(UUID, UUID)
+    }
+
+    /// The committed layers, with the in-progress drag drawn on top.
+    private var displayLayers: [PlanLayer] {
+        guard let editPreview else { return layers }
+        return layers.map { layer in
+            guard layer.id == editPreview.roomID else { return layer }
+            var copy = layer
+            copy.plan = editPreview.plan
+            return copy
+        }
     }
 
     private struct Palette {
@@ -83,24 +112,25 @@ struct FloorPlanCanvas: View {
                 padding: interactive ? 32 : 8
             )
             let projector = adjusted(fitted)
+            let drawn = displayLayers
             let canvas = Canvas { context, size in
                 drawGrid(in: context, projector: projector, bounds: bounds, size: size)
                 drawHeat(in: context, projector: projector, bounds: bounds)
-                for layer in layers {
+                for layer in drawn {
                     drawFloor(layer, in: context, projector: projector)
                 }
                 if markup != .structure {
-                    for layer in layers {
+                    for layer in drawn {
                         drawObjects(layer, in: context, projector: projector, labeled: markup == .annotated)
                     }
                 }
-                for layer in layers {
+                for layer in drawn {
                     drawWalls(layer, in: context, projector: projector)
                     drawOpenings(layer, in: context, projector: projector)
                 }
                 switch markup {
                 case .annotated:
-                    for layer in layers {
+                    for layer in drawn {
                         drawLabel(layer, in: context, projector: projector)
                     }
                 case .preview:
@@ -111,7 +141,8 @@ struct FloorPlanCanvas: View {
                 if showPins {
                     drawPins(in: context, projector: projector)
                 }
-                if layers.allSatisfy({ $0.plan.isEmpty }) {
+                drawEditor(in: context, projector: projector)
+                if drawn.allSatisfy({ $0.plan.isEmpty }) {
                     context.draw(
                         Text("No measurements yet")
                             .font(.subheadline)
@@ -142,6 +173,7 @@ struct FloorPlanCanvas: View {
         .background(palette.ground)
         .environment(\.colorScheme, onCharcoal ? .dark : .light)
         .accessibilityLabel("Floor plan")
+        .accessibilityHint(planEditing ? "Tap a room, then drag a handle to resize it. Drag a door or window along its wall." : "")
     }
 
     private func adjusted(_ fitted: PlanProjector) -> PlanProjector {
@@ -172,14 +204,13 @@ struct FloorPlanCanvas: View {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 if case .idle = dragMode {
-                    if showPins, let pin = hitPin(at: value.startLocation, projector: projector) {
-                        dragMode = .pin(pin)
-                    } else {
-                        panOrigin = userOffset
-                        dragMode = .pan
-                    }
+                    dragMode = beginDrag(at: value.startLocation, projector: projector)
                 }
                 switch dragMode {
+                case .handle(let roomID, let handle):
+                    updateResize(roomID: roomID, handle: handle, at: value.location, projector: projector)
+                case .opening(let roomID, let openingID):
+                    updateSlide(roomID: roomID, openingID: openingID, at: value.location, projector: projector)
                 case .pin(let id):
                     let world = projector.world(screenX: value.location.x, screenY: value.location.y)
                     movedDisplay = (id, world.x, world.z)
@@ -194,22 +225,259 @@ struct FloorPlanCanvas: View {
             }
             .onEnded { value in
                 let distance = hypot(value.translation.width, value.translation.height)
+                let mode = dragMode
                 if distance < 8 {
-                    if showPins, let pin = hitPin(at: value.startLocation, projector: projector) {
-                        onSelectPin(pin)
-                    } else if placing {
-                        let world = projector.world(screenX: value.location.x, screenY: value.location.y)
-                        onCreate(world.x, world.z)
-                    } else {
+                    editPreview = nil
+                    handleTap(at: value.startLocation, projector: projector)
+                } else {
+                    switch mode {
+                    case .handle(let room, _):
+                        onSelectRoom(room)
+                        onSelectOpening(nil)
+                        commitPreview()
+                    case .opening(let room, let opening):
+                        onSelectRoom(room)
+                        onSelectOpening(opening)
                         onSelectPin(nil)
+                        commitPreview()
+                    case .pin:
+                        if let movedDisplay { commitMove(movedDisplay) }
+                    case .pan, .idle:
+                        break
                     }
-                } else if let movedDisplay {
-                    commitMove(movedDisplay)
                 }
                 dragMode = .idle
                 movedDisplay = nil
                 panOrigin = .zero
             }
+    }
+
+    private func beginDrag(at location: CGPoint, projector: PlanProjector) -> DragMode {
+        if let hit = hitCorner(at: location, projector: projector) {
+            return .handle(hit.0, hit.1)
+        }
+        if let hit = hitOpening(at: location, projector: projector) {
+            return .opening(hit.0, hit.1)
+        }
+        if let hit = hitEdge(at: location, projector: projector) {
+            return .handle(hit.0, hit.1)
+        }
+        if showPins, let pin = hitPin(at: location, projector: projector) {
+            return .pin(pin)
+        }
+        panOrigin = userOffset
+        return .pan
+    }
+
+    private func handleTap(at location: CGPoint, projector: PlanProjector) {
+        if let hit = hitOpening(at: location, projector: projector) {
+            onSelectRoom(hit.0)
+            onSelectOpening(hit.1)
+            onSelectPin(nil)
+            return
+        }
+        if hitCorner(at: location, projector: projector) != nil || hitEdge(at: location, projector: projector) != nil {
+            return
+        }
+        if showPins, let pin = hitPin(at: location, projector: projector) {
+            onSelectPin(pin)
+            onSelectRoom(nil)
+            onSelectOpening(nil)
+            return
+        }
+        if let room = hitRoom(at: location, projector: projector) {
+            onSelectRoom(room)
+            onSelectOpening(nil)
+            onSelectPin(nil)
+            return
+        }
+        if placing {
+            let world = projector.world(screenX: location.x, screenY: location.y)
+            onCreate(world.x, world.z)
+            return
+        }
+        onSelectPin(nil)
+        onSelectRoom(nil)
+        onSelectOpening(nil)
+    }
+
+    private func updateResize(roomID: UUID, handle: PlanHandle, at location: CGPoint, projector: PlanProjector) {
+        guard let layer = layers.first(where: { $0.id == roomID }) else { return }
+        let world = projector.world(screenX: location.x, screenY: location.y)
+        let local = Vec3(x: world.x - layer.offset.x, y: 0, z: world.z - layer.offset.z)
+        let result = PlanEditor.resize(
+            layer.plan,
+            handle: handle,
+            to: local,
+            against: snapTargets(for: roomID),
+            threshold: snapThreshold(projector)
+        )
+        editPreview = EditPreview(roomID: roomID, plan: result.plan, guides: result.guides)
+    }
+
+    private func updateSlide(roomID: UUID, openingID: UUID, at location: CGPoint, projector: PlanProjector) {
+        guard let layer = layers.first(where: { $0.id == roomID }) else { return }
+        let world = projector.world(screenX: location.x, screenY: location.y)
+        let local = Vec3(x: world.x - layer.offset.x, y: 0, z: world.z - layer.offset.z)
+        let result = PlanEditor.slide(
+            layer.plan,
+            openingID: openingID,
+            to: local,
+            against: snapTargets(for: roomID),
+            threshold: snapThreshold(projector)
+        )
+        editPreview = EditPreview(roomID: roomID, plan: result.plan, guides: result.guides)
+    }
+
+    private func commitPreview() {
+        guard let editPreview else { return }
+        onCommitPlan(editPreview.roomID, editPreview.plan)
+        self.editPreview = nil
+    }
+
+    private func snapTargets(for roomID: UUID) -> [FloorPlan] {
+        guard let edited = layers.first(where: { $0.id == roomID }) else { return extraSnapPlans }
+        let others = layers.compactMap { layer -> FloorPlan? in
+            guard layer.id != roomID else { return nil }
+            return PlanEditor.translated(layer.plan, by: layer.offset - edited.offset)
+        }
+        return others + extraSnapPlans
+    }
+
+    private func snapThreshold(_ projector: PlanProjector) -> Double {
+        let pixels = projector.metersToPoints * max(projector.userScale, 0.001)
+        return min(0.16, max(0.04, 12 / pixels))
+    }
+
+    private func hitCorner(at point: CGPoint, projector: PlanProjector) -> (UUID, PlanHandle)? {
+        guard planEditing, let roomID = selectedRoomID, let box = box(for: roomID) else { return nil }
+        let layer = displayLayers.first { $0.id == roomID }
+        let offset = layer?.offset ?? .zero
+        var best: (PlanHandle, CGFloat)?
+        for handle in PlanHandle.all {
+            guard case .corner = handle else { continue }
+            let screen = screenPoint(box.point(handle) + offset, projector)
+            let distance = hypot(screen.x - point.x, screen.y - point.y)
+            if distance <= 22, best == nil || distance < best!.1 {
+                best = (handle, distance)
+            }
+        }
+        guard let best else { return nil }
+        return (roomID, best.0)
+    }
+
+    private func hitEdge(at point: CGPoint, projector: PlanProjector) -> (UUID, PlanHandle)? {
+        guard planEditing, let roomID = selectedRoomID, let box = box(for: roomID) else { return nil }
+        let layer = displayLayers.first { $0.id == roomID }
+        let offset = layer?.offset ?? .zero
+        var best: (PlanHandle, CGFloat)?
+        for handle in PlanHandle.all {
+            guard case .edge(let edge) = handle else { continue }
+            let segment = box.segment(edge)
+            let start = screenPoint(segment.start + offset, projector)
+            let end = screenPoint(segment.end + offset, projector)
+            let distance = distance(point, to: start, end)
+            if distance <= 16, best == nil || distance < best!.1 {
+                best = (handle, distance)
+            }
+        }
+        guard let best else { return nil }
+        return (roomID, best.0)
+    }
+
+    private func hitOpening(at point: CGPoint, projector: PlanProjector) -> (UUID, UUID)? {
+        guard planEditing else { return nil }
+        var best: (UUID, UUID, CGFloat)?
+        for layer in displayLayers {
+            for opening in layer.plan.openings {
+                let ends = opening.widthEndpoints
+                let start = screenPoint(ends.start + layer.offset, projector)
+                let end = screenPoint(ends.end + layer.offset, projector)
+                let distance = distance(point, to: start, end)
+                if distance <= 18, best == nil || distance < best!.2 {
+                    best = (layer.id, opening.id, distance)
+                }
+            }
+        }
+        guard let best else { return nil }
+        return (best.0, best.1)
+    }
+
+    private func hitRoom(at point: CGPoint, projector: PlanProjector) -> UUID? {
+        guard planEditing else { return nil }
+        let world = projector.world(screenX: point.x, screenY: point.y)
+        var best: (UUID, Double)?
+        for layer in displayLayers {
+            let area = MeasurementMath.floorArea(of: layer.plan)
+            guard PlanEditor.contains(x: world.x - layer.offset.x, z: world.z - layer.offset.z, in: layer.plan) else {
+                continue
+            }
+            let score = area > 0 ? area : Double.greatestFiniteMagnitude
+            if best == nil || score < best!.1 {
+                best = (layer.id, score)
+            }
+        }
+        return best?.0
+    }
+
+    private func box(for roomID: UUID) -> PlanBox? {
+        guard let layer = displayLayers.first(where: { $0.id == roomID }) else { return nil }
+        return PlanEditor.box(of: layer.plan)
+    }
+
+    private func drawEditor(in context: GraphicsContext, projector: PlanProjector) {
+        guard planEditing else { return }
+        if let editPreview, let layer = displayLayers.first(where: { $0.id == editPreview.roomID }) {
+            var path = Path()
+            for guide in editPreview.guides {
+                let start = guide.start + layer.offset
+                let end = guide.end + layer.offset
+                path.move(to: screenPoint(start, projector))
+                path.addLine(to: screenPoint(end, projector))
+            }
+            context.stroke(
+                path,
+                with: .color(palette.accent),
+                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [7, 5])
+            )
+        }
+        let roomID = selectedRoomID ?? editPreview?.roomID
+        guard let roomID, let layer = displayLayers.first(where: { $0.id == roomID }),
+              let box = PlanEditor.box(of: layer.plan) else {
+            return
+        }
+        var outline = Path()
+        for edge in [PlanEdge.minU, .maxU, .minV, .maxV] {
+            let segment = box.segment(edge)
+            outline.move(to: screenPoint(segment.start + layer.offset, projector))
+            outline.addLine(to: screenPoint(segment.end + layer.offset, projector))
+        }
+        context.stroke(outline, with: .color(palette.accent.opacity(0.95)), lineWidth: 1.5)
+        for handle in PlanHandle.all {
+            let screen = screenPoint(box.point(handle) + layer.offset, projector)
+            let corner: Bool
+            if case .corner = handle { corner = true } else { corner = false }
+            let size: CGFloat = corner ? 12 : 10
+            let rect = CGRect(x: screen.x - size / 2, y: screen.y - size / 2, width: size, height: size)
+            let path = corner ? Path(roundedRect: rect, cornerRadius: 2) : Path(ellipseIn: rect)
+            context.fill(path, with: .color(palette.accent))
+            context.stroke(path, with: .color(onCharcoal ? Theme.chalk : Color.white), lineWidth: 1.5)
+        }
+    }
+
+    private func screenPoint(_ world: Vec3, _ projector: PlanProjector) -> CGPoint {
+        point(projector.screen(x: world.x, z: world.z))
+    }
+
+    private func distance(_ point: CGPoint, to start: CGPoint, _ end: CGPoint) -> CGFloat {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let lengthSquared = dx * dx + dy * dy
+        if lengthSquared < 1 {
+            return hypot(point.x - start.x, point.y - start.y)
+        }
+        let t = min(1, max(0, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+        return hypot(point.x - (start.x + dx * t), point.y - (start.y + dy * t))
     }
 
     private func commitMove(_ moved: (id: UUID, x: Double, z: Double)) {
@@ -408,8 +676,13 @@ struct FloorPlanCanvas: View {
             path.addLine(to: point(projector.screen(x: end.x, z: end.z)))
             let erase = max(5, 0.16 * projector.metersToPoints * projector.userScale)
             context.stroke(path, with: .color(palette.ground), style: StrokeStyle(lineWidth: erase, lineCap: .butt))
-            let color: Color = opening.kind == .window ? palette.accent : palette.door
-            context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            let selected = opening.id == selectedOpeningID
+            let color: Color = selected ? palette.accent : (opening.kind == .window ? palette.accent : palette.door)
+            context.stroke(
+                path,
+                with: .color(color),
+                style: StrokeStyle(lineWidth: selected ? 4 : 2, lineCap: .round)
+            )
         }
     }
 
@@ -420,7 +693,7 @@ struct FloorPlanCanvas: View {
             var size: PlanLabelFit.LabelSize
         }
         var items: [Item] = []
-        for layer in layers {
+        for layer in displayLayers {
             guard !layer.plan.isEmpty, !layer.name.isEmpty else { continue }
             guard let room = roomSpan(layer, projector: projector) else { continue }
             let measured = context.resolve(

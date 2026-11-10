@@ -123,7 +123,13 @@ public enum HomeExport {
         }
         let glb: Data
         let usdz: Data?
-        if textures.isEmpty, let overview = home.structure?.overviewFloorPlan, !overview.isEmpty {
+        // A merged shell is the home model only while each scan still has its own
+        // origin. Once rooms share coordinates, the home model is those room plans,
+        // so a hand edit is what upload writes into model.glb.
+        if textures.isEmpty,
+           !home.coordinatesAreUnified,
+           let overview = home.structure?.overviewFloorPlan,
+           !overview.isEmpty {
             glb = FloorPlanGLB.data(for: overview)
             usdz = home.structure?.usdz.flatMap { usdzFiles[$0] }
         } else if textures.isEmpty {
