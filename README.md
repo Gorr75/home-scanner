@@ -29,6 +29,9 @@ Scans are written under the app's Documents folder (`Homes/<id>/`), which the Fi
 - Save each room's `CapturedRoom` JSON and USDZ, and the merged `CapturedStructure` when you combine.
 - List homes, orbit and pinch-zoom the model in SceneKit, and pan a top-down plan.
 - Share a USDZ, or share the home as `roomscan.home` JSON.
+- Measure a distance on the 3D model or the floor plan by tapping two points. Corners and edges snap. Saving the measurement keeps it as a note on the room.
+- Pin a note on a wall, the floor, or an object, with a photo, a voice recording, and an optional on-device transcript in Swedish or English. During a scan, Add note anchors that snapshot to the camera and places it in the room when you save.
+- Keep an inventory for each room: scanned objects, catalog furniture, and items you add. Search the whole home, see totals, and share a CSV or an insurance PDF.
 - On a device without LiDAR, the app explains that and still opens anything already saved, including the sample.
 - Place, move, and delete device pins by tapping the 3D model or the floor plan. Each pin has a name, a type, a 3D position, and an optional Home Assistant `entity_id` such as `light.kitchen`.
 - Connect Home Assistant in Settings, test the connection, and pick an entity from the server's list while editing a pin.

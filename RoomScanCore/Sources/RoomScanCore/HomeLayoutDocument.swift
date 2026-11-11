@@ -40,7 +40,7 @@ public struct HomeLayoutDocument: Codable, Equatable, Sendable {
 
     public func encode() throws -> Data {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
         encoder.keyEncodingStrategy = .convertToSnakeCase
         return try encoder.encode(self)

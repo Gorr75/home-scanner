@@ -66,6 +66,8 @@ public struct ScanPackage: Equatable, Sendable {
     public var modelUSDZ: Data?
     /// Photo plates for a one-room folder. Empty for a whole-home package and for older uploads.
     public var plates: [HomeScannerFile]
+    /// Note photos, voice notes, and inventory pictures. Paths match the refs in `layout.json`.
+    public var media: [HomeScannerFile]
 
     public init(
         slug: String,
@@ -73,7 +75,8 @@ public struct ScanPackage: Equatable, Sendable {
         layoutJSON: Data,
         modelGLB: Data,
         modelUSDZ: Data? = nil,
-        plates: [HomeScannerFile] = []
+        plates: [HomeScannerFile] = [],
+        media: [HomeScannerFile] = []
     ) {
         self.slug = slug
         self.title = title
@@ -81,6 +84,7 @@ public struct ScanPackage: Equatable, Sendable {
         self.modelGLB = modelGLB
         self.modelUSDZ = modelUSDZ
         self.plates = plates
+        self.media = media
     }
 
     public var files: [HomeScannerFile] {
@@ -89,6 +93,7 @@ public struct ScanPackage: Equatable, Sendable {
             items.append(.modelUSDZ(modelUSDZ))
         }
         items.append(contentsOf: plates)
+        items.append(contentsOf: media)
         return items
     }
 
@@ -111,14 +116,15 @@ public enum HomeExport {
     public static func packages(
         for home: Home,
         usdzFiles: [String: Data] = [:],
-        textures: [AppliedTexture] = []
+        textures: [AppliedTexture] = [],
+        media: [String: Data] = [:]
     ) throws -> [ScanPackage] {
         var packages: [ScanPackage] = []
-        packages.append(try homePackage(home, usdzFiles: usdzFiles, textures: textures))
+        packages.append(try homePackage(home, usdzFiles: usdzFiles, textures: textures, media: media))
         for room in home.rooms {
             let ids = surfaceIDs(in: room.floorPlan)
             let roomTextures = textures.filter { ids.contains($0.surfaceId) }
-            packages.append(try roomPackage(home, room: room, usdzFiles: usdzFiles, textures: roomTextures))
+            packages.append(try roomPackage(home, room: room, usdzFiles: usdzFiles, textures: roomTextures, media: media))
         }
         return packages
     }
@@ -126,13 +132,14 @@ public enum HomeExport {
     public static func zip(
         for home: Home,
         usdzFiles: [String: Data] = [:],
-        textures: [AppliedTexture] = []
+        textures: [AppliedTexture] = [],
+        media: [String: Data] = [:]
     ) throws -> Data {
-        let entries = try packages(for: home, usdzFiles: usdzFiles, textures: textures).flatMap(\.zipEntries)
+        let entries = try packages(for: home, usdzFiles: usdzFiles, textures: textures, media: media).flatMap(\.zipEntries)
         return StoredZip.archive(files: entries)
     }
 
-    private static func homePackage(_ home: Home, usdzFiles: [String: Data], textures: [AppliedTexture]) throws -> ScanPackage {
+    private static func homePackage(_ home: Home, usdzFiles: [String: Data], textures: [AppliedTexture], media: [String: Data]) throws -> ScanPackage {
         let slug = try requireSlug(home.id.uuidString)
         let frames = FloorPlanLayout.frames(rooms: home.rooms, coordinatesAreUnified: home.coordinatesAreUnified)
         let layers = home.rooms.map { room in
@@ -167,11 +174,12 @@ public enum HomeExport {
             title: home.name,
             layoutJSON: try HomeLayoutDocument(home: home).encode(),
             modelGLB: glb,
-            modelUSDZ: usdz
+            modelUSDZ: usdz,
+            media: mediaFiles(referencedBy: home.rooms.flatMap(\.mediaPaths), in: media)
         )
     }
 
-    private static func roomPackage(_ home: Home, room: Room, usdzFiles: [String: Data], textures: [AppliedTexture]) throws -> ScanPackage {
+    private static func roomPackage(_ home: Home, room: Room, usdzFiles: [String: Data], textures: [AppliedTexture], media: [String: Data]) throws -> ScanPackage {
         let slug = try requireSlug(room.id.uuidString)
         let single = Home(
             id: home.id,
@@ -203,8 +211,25 @@ public enum HomeExport {
             title: room.name,
             layoutJSON: try HomeLayoutDocument(home: single).encode(),
             modelGLB: glb,
-            modelUSDZ: usdz
+            modelUSDZ: usdz,
+            media: mediaFiles(referencedBy: room.mediaPaths, in: media)
         )
+    }
+
+    private static func mediaFiles(referencedBy paths: [String], in files: [String: Data]) -> [HomeScannerFile] {
+        var seen = Set<String>()
+        var items: [HomeScannerFile] = []
+        for path in paths where seen.insert(path).inserted {
+            guard RelativePath.isSafe(path), let data = files[path] else { continue }
+            items.append(HomeScannerFile(filename: path, mimeType: mimeType(for: path), data: data))
+        }
+        return items.sorted { $0.filename < $1.filename }
+    }
+
+    private static func mimeType(for path: String) -> String {
+        if path.hasSuffix(".jpg") || path.hasSuffix(".jpeg") { return "image/jpeg" }
+        if path.hasSuffix(".m4a") { return "audio/mp4" }
+        return "application/octet-stream"
     }
 
     private static func surfaceIDs(in plan: FloorPlan) -> Set<UUID> {

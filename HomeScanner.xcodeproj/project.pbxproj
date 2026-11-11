@@ -265,7 +265,9 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you. Scans stay on this device.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you, and to attach photos to notes and inventory. Scans stay on this device.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Home Scanner uses the microphone for voice notes on a room. Recordings stay on this device.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Home Scanner can transcribe a voice note on this device, in Swedish or English. The recording is not sent away for transcription.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Home Scanner uses motion sensors while you walk so the scan stays aligned. Motion data stays on this device.";
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Home Scanner connects to your Home Assistant server on the local network to read devices and upload a floor plan. The token stays in the Keychain on this iPhone.";
@@ -305,7 +307,9 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you. Scans stay on this device.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you, and to attach photos to notes and inventory. Scans stay on this device.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Home Scanner uses the microphone for voice notes on a room. Recordings stay on this device.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Home Scanner can transcribe a voice note on this device, in Swedish or English. The recording is not sent away for transcription.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Home Scanner uses motion sensors while you walk so the scan stays aligned. Motion data stays on this device.";
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Home Scanner connects to your Home Assistant server on the local network to read devices and upload a floor plan. The token stays in the Keychain on this iPhone.";

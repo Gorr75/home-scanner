@@ -54,6 +54,9 @@ struct HomeDetailView: View {
                         NavigationLink(value: AppRoute.plan(home.id)) {
                             Label("Floor plan", systemImage: "square.split.bottomrightquarter")
                         }
+                        NavigationLink(value: AppRoute.inventory(home: home.id, room: nil)) {
+                            Label("Inventory", systemImage: "shippingbox")
+                        }
                     } footer: {
                         Text(layoutCaption(home))
                     }
@@ -347,7 +350,11 @@ struct HomeDetailView: View {
         let finish = room.flooring.map { " · \($0.title)" } ?? ""
         let pieces = room.placedFurniture.count
         let furniture = pieces == 0 ? "" : (pieces == 1 ? " · 1 piece" : " · \(pieces) pieces")
-        return "\(floor)\(source) · \(deviceText)\(finish)\(furniture)"
+        let items = room.inventoryItems.count
+        let inventory = items == 0 ? "" : (items == 1 ? " · 1 item" : " · \(items) items")
+        let notes = room.roomAnnotations.count
+        let noteText = notes == 0 ? "" : (notes == 1 ? " · 1 note" : " · \(notes) notes")
+        return "\(floor)\(source) · \(deviceText)\(finish)\(furniture)\(inventory)\(noteText)"
     }
 
     private func capturedCount(_ home: Home) -> Int {

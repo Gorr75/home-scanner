@@ -206,6 +206,54 @@ final class HomeStore {
         repository.textureData(homeId: homeId, relative: relative)
     }
 
+    func writeMedia(homeId: UUID, relative: String, data: Data) throws {
+        try repository.writeMedia(homeId: homeId, relative: relative, data: data)
+    }
+
+    func mediaData(homeId: UUID, relative: String) -> Data? {
+        repository.readMedia(homeId: homeId, relative: relative)
+    }
+
+    func removeMedia(homeId: UUID, relative: String) {
+        repository.removeMedia(homeId: homeId, relative: relative)
+    }
+
+    func mediaFiles(in home: Home) -> [String: Data] {
+        var files: [String: Data] = [:]
+        for relative in home.rooms.flatMap(\.mediaPaths) where RelativePath.isSafe(relative) {
+            if let data = repository.readMedia(homeId: home.id, relative: relative) {
+                files[relative] = data
+            }
+        }
+        return files
+    }
+
+    func installScanNotes(
+        _ notes: [(id: UUID, text: String, columns: [Double], jpeg: Data?)],
+        plan: FloorPlan,
+        homeId: UUID,
+        roomId: UUID
+    ) throws {
+        guard !notes.isEmpty else { return }
+        var annotations: [RoomAnnotation] = []
+        for note in notes {
+            guard let position = ScanNotePlacement.position(columns: note.columns, plan: plan) else { continue }
+            var annotation = RoomAnnotation.note(at: position, text: note.text, id: note.id)
+            if let jpeg = note.jpeg {
+                let relative = MediaPaths.annotationPhoto(note.id)
+                try writeMedia(homeId: homeId, relative: relative, data: jpeg)
+                annotation.photo = relative
+            }
+            annotations.append(annotation)
+        }
+        guard !annotations.isEmpty else { return }
+        try update(homeId: homeId) { home in
+            for annotation in annotations {
+                home.upsertAnnotation(annotation, in: roomId)
+            }
+        }
+    }
+
     func appliedTextures(in home: Home) -> [AppliedTexture] {
         repository.textures(homeId: home.id).photos.compactMap { photo in
             guard photo.corners.count == 4, let jpeg = repository.textureData(homeId: home.id, relative: photo.imagePath) else {

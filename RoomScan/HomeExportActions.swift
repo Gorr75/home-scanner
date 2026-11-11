@@ -7,7 +7,8 @@ enum HomeExportActions {
         try HomeExport.packages(
             for: home,
             usdzFiles: store.usdzFiles(in: home),
-            textures: store.appliedTextures(in: home)
+            textures: store.appliedTextures(in: home),
+            media: store.mediaFiles(in: home)
         ).map { package in
             package.withPlates(plates(for: package))
         }
@@ -28,7 +29,8 @@ enum HomeExportActions {
         let data = try HomeExport.zip(
             for: home,
             usdzFiles: store.usdzFiles(in: home),
-            textures: store.appliedTextures(in: home)
+            textures: store.appliedTextures(in: home),
+            media: store.mediaFiles(in: home)
         )
         var name = home.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if name.isEmpty { name = "Home" }

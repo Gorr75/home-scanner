@@ -152,6 +152,13 @@ public final class HomeRepository {
             throw HomeRepositoryError.missingHome(homeId)
         }
         if let room = home.room(id: roomId) {
+            for relative in room.mediaPaths {
+                do {
+                    try removeFile(homeId: homeId, relative: relative)
+                } catch {
+                    continue
+                }
+            }
             for relative in [room.assets.usdz, room.assets.capturedRoom].compactMap({ $0 }) {
                 do {
                     try removeFile(homeId: homeId, relative: relative)
@@ -273,6 +280,26 @@ public final class HomeRepository {
 
     public func writeTextureImage(homeId: UUID, relative: String, data: Data) throws {
         try write(data, homeId: homeId, relative: relative)
+    }
+
+    public func writeMedia(homeId: UUID, relative: String, data: Data) throws {
+        try write(data, homeId: homeId, relative: relative)
+    }
+
+    public func readMedia(homeId: UUID, relative: String) -> Data? {
+        guard let url = try? fileURL(homeId: homeId, relative: relative),
+              fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return try? Data(contentsOf: url)
+    }
+
+    public func removeMedia(homeId: UUID, relative: String) {
+        do {
+            try removeFile(homeId: homeId, relative: relative)
+        } catch {
+            return
+        }
     }
 
     public func removeTextureFile(homeId: UUID, relative: String) {

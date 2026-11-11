@@ -6,6 +6,7 @@ enum AppRoute: Hashable {
     case room(home: UUID, room: UUID)
     case model(UUID)
     case plan(UUID)
+    case inventory(home: UUID, room: UUID?)
 }
 
 struct RootView: View {
@@ -65,6 +66,8 @@ extension View {
                 HomeViewer(homeID: id, showsPlan: false)
             case .plan(let id):
                 HomeViewer(homeID: id, showsPlan: true)
+            case .inventory(let home, let room):
+                InventoryListView(homeID: home, roomID: room)
             }
         }
     }

@@ -83,7 +83,7 @@ class UploadView(HomeAssistantView):
             filename = part.filename
             if not accepted_upload_name(filename):
                 return self.json_message(
-                    "Only layout.json, model.glb, model.usdz, and plates/ files are accepted.",
+                    "Only layout.json, model.glb, model.usdz, plates/, notes/, and inventory/ files are accepted.",
                     400,
                 )
             payload = await _read_limited(part, MAX_BYTES - total)

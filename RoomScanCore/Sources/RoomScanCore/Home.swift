@@ -135,6 +135,10 @@ public struct Room: Equatable, Identifiable, Sendable {
     public var flooring: FlooringMaterial?
     /// Catalog items placed in this room. Nil when the room has none, so older files stay unchanged.
     public var furniture: [PlacedFurniture]?
+    /// Notes, photos, voice notes, and saved measurements. Nil when the room has none.
+    public var annotations: [RoomAnnotation]?
+    /// Appliances, catalog furniture, and items added by hand. Nil when the room has none.
+    public var inventory: [InventoryItem]?
 
     public init(
         id: UUID,
@@ -145,7 +149,9 @@ public struct Room: Equatable, Identifiable, Sendable {
         floor: Int? = nil,
         viewpoint: CameraViewpoint? = nil,
         flooring: FlooringMaterial? = nil,
-        furniture: [PlacedFurniture]? = nil
+        furniture: [PlacedFurniture]? = nil,
+        annotations: [RoomAnnotation]? = nil,
+        inventory: [InventoryItem]? = nil
     ) {
         self.id = id
         self.name = name
@@ -156,12 +162,14 @@ public struct Room: Equatable, Identifiable, Sendable {
         self.viewpoint = viewpoint
         self.flooring = flooring
         self.furniture = furniture
+        self.annotations = annotations
+        self.inventory = inventory
     }
 }
 
 extension Room: Codable {
     enum CodingKeys: String, CodingKey {
-        case id, name, createdAt, floorPlan, assets, floor, viewpoint, flooring, furniture
+        case id, name, createdAt, floorPlan, assets, floor, viewpoint, flooring, furniture, annotations, inventory
     }
 
     public init(from decoder: Decoder) throws {
@@ -175,6 +183,8 @@ extension Room: Codable {
         viewpoint = try container.decodeIfPresent(CameraViewpoint.self, forKey: .viewpoint)
         flooring = try container.decodeIfPresent(FlooringMaterial.self, forKey: .flooring)
         furniture = try container.decodeIfPresent([PlacedFurniture].self, forKey: .furniture)
+        annotations = try container.decodeIfPresent([RoomAnnotation].self, forKey: .annotations)
+        inventory = try container.decodeIfPresent([InventoryItem].self, forKey: .inventory)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -188,6 +198,8 @@ extension Room: Codable {
         try container.encodeIfPresent(viewpoint, forKey: .viewpoint)
         try container.encodeIfPresent(flooring, forKey: .flooring)
         try container.encodeIfPresent(furniture, forKey: .furniture)
+        try container.encodeIfPresent(annotations, forKey: .annotations)
+        try container.encodeIfPresent(inventory, forKey: .inventory)
     }
 }
 

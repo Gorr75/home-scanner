@@ -38,6 +38,11 @@ struct RoomDetailView: View {
     @State private var replacingObjectID: UUID?
     @State private var selectedFurnitureID: UUID?
     @State private var captureToken = 0
+    @State private var markup = MarkupSession()
+    @State private var editingNote: RoomAnnotation?
+    @State private var editingItem: InventoryRoute?
+    @State private var showNotes = false
+    @State private var showInventoryMarkers = false
     @AppStorage(DaylightPreference.enabledKey) private var daylightEnabled = true
     @Environment(\.dismiss) private var dismiss
 
@@ -73,6 +78,13 @@ struct RoomDetailView: View {
                         model(home, room: room)
                     case .plan:
                         plan(room)
+                        MarkupBar(
+                            tool: markup.tool,
+                            hint: markup.hint,
+                            canSave: markup.distanceLabel != nil,
+                            onSave: { saveMeasurement(in: room) },
+                            onClear: { markup.clearDraft() }
+                        )
                         PlanEditorBar(
                             canUndo: planEditor.canUndo,
                             canRedo: planEditor.canRedo,
@@ -184,6 +196,45 @@ struct RoomDetailView: View {
         .sheet(isPresented: $texturing) {
             TextureStudioView(homeID: homeID, roomID: roomID)
         }
+        .sheet(item: $editingNote) { note in
+            AnnotationEditorSheet(
+                homeID: homeID,
+                roomName: room?.name ?? "Room",
+                note: note,
+                onSave: { saved in
+                    mutate { $0.upsertAnnotation(saved, in: roomID) }
+                },
+                onDelete: { deleted in
+                    for relative in [deleted.photo, deleted.audio].compactMap({ $0 }) {
+                        store.removeMedia(homeId: homeID, relative: relative)
+                    }
+                    mutate { $0.deleteAnnotation(id: deleted.id, in: roomID) }
+                    if markup.selectedID == deleted.id { markup.selectedID = nil }
+                }
+            )
+        }
+        .sheet(item: $editingItem) { route in
+            InventoryEditorSheet(
+                homeID: homeID,
+                roomID: route.roomID,
+                item: route.item,
+                onSave: { item in
+                    mutate { $0.upsertInventory(item, in: route.roomID) }
+                },
+                onDelete: { item in
+                    for relative in item.photos + [item.receipt].compactMap({ $0 }) {
+                        store.removeMedia(homeId: homeID, relative: relative)
+                    }
+                    mutate { $0.deleteInventory(id: item.id, in: route.roomID) }
+                }
+            )
+        }
+        .sheet(isPresented: $showNotes) {
+            NotesListSheet(roomName: room?.name ?? "Notes", notes: room?.roomAnnotations ?? []) { note in
+                showNotes = false
+                editingNote = note
+            }
+        }
         .sheet(isPresented: $showCatalog) {
             FurnitureCatalogSheet(suggestedID: suggestedCatalogID) { item in
                 if let replacingObjectID {
@@ -250,7 +301,21 @@ struct RoomDetailView: View {
                 },
                 savedViewpoint: room.viewpoint,
                 captureToken: captureToken,
-                onCaptureViewpoint: { saveViewpoint($0) }
+                onCaptureViewpoint: { saveViewpoint($0) },
+                markupPins: markup.pins(home: home, layers: PlanLayers.single(room), includeInventory: showInventoryMarkers),
+                markupSegments: markup.segments(home: home, layers: PlanLayers.single(room)),
+                draftStart: markup.draftStart,
+                draftEnd: markup.draftEnd,
+                selectedMarkupID: markup.selectedID,
+                measureEnabled: markup.tool == .measure,
+                annotateEnabled: markup.tool == .annotate,
+                onMeasurePoint: { point in
+                    markup.measureTap(point, layers: PlanLayers.single(room))
+                },
+                onAnnotatePoint: { point in
+                    placeNote(at: point, layers: PlanLayers.single(room))
+                },
+                onSelectMarkup: { selectMarkup($0, in: home) }
             )
             .overlay(alignment: .top) {
                 if let tint {
@@ -260,16 +325,25 @@ struct RoomDetailView: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                HStack(alignment: .bottom) {
-                    caption(room)
-                    Spacer(minLength: 8)
-                    Button("Save viewpoint") { captureToken += 1 }
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Theme.chalk)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Theme.navy, in: Capsule())
-                        .padding(12)
+                VStack(spacing: 0) {
+                    MarkupBar(
+                        tool: markup.tool,
+                        hint: markup.hint,
+                        canSave: markup.distanceLabel != nil,
+                        onSave: { saveMeasurement(in: room) },
+                        onClear: { markup.clearDraft() }
+                    )
+                    HStack(alignment: .bottom) {
+                        caption(room)
+                        Spacer(minLength: 8)
+                        Button("Save viewpoint") { captureToken += 1 }
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Theme.chalk)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Theme.navy, in: Capsule())
+                            .padding(12)
+                    }
                 }
             }
         }
@@ -291,7 +365,7 @@ struct RoomDetailView: View {
             onCreate: { x, z in
                 create(in: roomID, x: x, z: z, y: placeKind.defaultHeight)
             },
-            planEditing: !placing && !placingFurniture,
+            planEditing: !placing && !placingFurniture && markup.tool == .off,
             selectedRoomID: planEditor.selectedRoomID,
             selectedOpeningID: planEditor.selectedOpeningID,
             extraSnapPlans: snapPlans(except: room.id),
@@ -316,6 +390,22 @@ struct RoomDetailView: View {
             },
             onCreateFurniture: { x, z in
                 placeFurniture(x: x, z: z, in: room.id)
+            },
+            markupPins: home.map { markup.pins(home: $0, layers: PlanLayers.single(room), includeInventory: showInventoryMarkers) } ?? [],
+            markupSegments: home.map { markup.segments(home: $0, layers: PlanLayers.single(room)) } ?? [],
+            draftStart: markup.draftStart,
+            draftEnd: markup.draftEnd,
+            selectedMarkupID: markup.selectedID,
+            measureEnabled: markup.tool == .measure,
+            annotateEnabled: markup.tool == .annotate,
+            onMeasurePoint: { point in
+                markup.measureTap(point, layers: PlanLayers.single(room))
+            },
+            onAnnotatePoint: { point in
+                placeNote(at: point, layers: PlanLayers.single(room))
+            },
+            onSelectMarkup: { id in
+                if let home { selectMarkup(id, in: home) }
             }
         )
     }
@@ -328,6 +418,9 @@ struct RoomDetailView: View {
                     showCatalog = true
                 } label: {
                     Label("Add from the catalog", systemImage: "plus")
+                }
+                NavigationLink(value: AppRoute.inventory(home: homeID, room: room.id)) {
+                    Label("Inventory", systemImage: "shippingbox")
                 }
             } footer: {
                 Text(flooringCaption(room))
@@ -511,8 +604,29 @@ struct RoomDetailView: View {
                     placing.toggle()
                     if placing {
                         placingFurniture = false
+                        markup.tool = .off
                         page = page == .devices ? .plan : page
                     }
+                }
+                Button(markup.tool == .measure ? "Stop measuring" : "Measure") {
+                    markup.toggleMeasure()
+                    if markup.tool == .measure {
+                        placing = false
+                        placingFurniture = false
+                        if page == .devices || page == .objects { page = .plan }
+                    }
+                }
+                Button(markup.tool == .annotate ? "Stop adding notes" : "Add a note") {
+                    markup.toggleAnnotate()
+                    if markup.tool == .annotate {
+                        placing = false
+                        placingFurniture = false
+                        if page == .devices || page == .objects { page = .model }
+                    }
+                }
+                Button("Notes") { showNotes = true }
+                Button(showInventoryMarkers ? "Hide inventory pins" : "Show inventory pins") {
+                    showInventoryMarkers.toggle()
                 }
                 Button(placingFurniture ? "Stop placing furniture" : "Add furniture") {
                     if placingFurniture {
@@ -870,6 +984,30 @@ struct RoomDetailView: View {
         mutate { home in
             home.rooms = edited.rooms
             home.pins = edited.pins
+        }
+    }
+
+    private func placeNote(at point: Vec3, layers: [PlanLayer]) {
+        guard let created = markup.newNote(at: point, layers: layers) else { return }
+        editingNote = created.note
+    }
+
+    private func saveMeasurement(in room: Room) {
+        let layers = PlanLayers.single(room)
+        guard let saved = markup.savedMeasurement(layers: layers) else { return }
+        mutate { $0.upsertAnnotation(saved.note, in: saved.roomID) }
+        markup.clearDraft()
+        editingNote = saved.note
+    }
+
+    private func selectMarkup(_ id: UUID, in home: Home) {
+        markup.selectedID = id
+        selectedPinID = nil
+        selectedFurnitureID = nil
+        if let found = home.annotation(id: id) {
+            editingNote = found.note
+        } else if let found = home.inventoryItem(id: id) {
+            editingItem = InventoryRoute(roomID: found.roomID, item: found.item)
         }
     }
 

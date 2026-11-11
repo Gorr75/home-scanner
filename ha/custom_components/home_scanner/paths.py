@@ -10,6 +10,8 @@ _UUID = r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f
 _PLATE = re.compile(
     rf"^plates/(manifest\.json|(?:day|night)/base\.jpg|(?:day|night)/{_UUID}\.png)$"
 )
+_NOTE = re.compile(rf"^notes/{_UUID}\.(?:jpg|m4a)$")
+_INVENTORY = re.compile(rf"^inventory/{_UUID}(?:-\d+|-receipt)\.jpg$")
 FIXED_UPLOADS = ("layout.json", "model.glb", "model.usdz")
 
 
@@ -22,12 +24,16 @@ def safe_slug(room: str) -> str | None:
 
 
 def accepted_upload_name(name: object) -> bool:
-    """layout.json, the models, and the photo-plate paths. Nothing with `..`."""
+    """layout.json, the models, photo plates, and note or inventory media. Nothing with `..`."""
     if not isinstance(name, str):
         return False
     if name in FIXED_UPLOADS:
         return True
-    return _PLATE.fullmatch(name) is not None
+    return (
+        _PLATE.fullmatch(name) is not None
+        or _NOTE.fullmatch(name) is not None
+        or _INVENTORY.fullmatch(name) is not None
+    )
 
 
 def upload_destination(folder: str, name: str) -> str:
