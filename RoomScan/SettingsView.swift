@@ -3,6 +3,8 @@ import RoomScanCore
 
 struct SettingsView: View {
     @Environment(HomeAssistantSettings.self) private var assistant
+    @Environment(HomeStore.self) private var store
+    @Environment(ICloudSyncController.self) private var sync
     @Environment(\.dismiss) private var dismiss
 
     @State private var urlDraft = ""
@@ -54,6 +56,7 @@ struct SettingsView: View {
                 } footer: {
                     Text("The 3D view warms at sunrise and sunset, stays neutral at midday, and dims to blue at night. Home Assistant's sun is used when you are connected. Otherwise the phone clock is used, with sunrise at 06:00 and sunset at 18:00. A slider on the model previews another time. Lights that are on keep their own colour.")
                 }
+                iCloudSection
             }
             .scrollContentBackground(.hidden)
             .paperChrome()
@@ -79,6 +82,69 @@ struct SettingsView: View {
                 urlDraft = assistant.baseURLText
             }
         }
+    }
+
+    private var iCloudSection: some View {
+        Group {
+            Section {
+                Toggle("iCloud sync", isOn: Binding(
+                    get: { sync.syncEnabled },
+                    set: { sync.setSyncEnabled($0) }
+                ))
+                .disabled(sync.isWorking)
+                LabeledContent("Status", value: sync.statusText)
+                Button {
+                    Task { await sync.backupNow() }
+                } label: {
+                    if sync.isWorking {
+                        HStack {
+                            ProgressView()
+                            Text("Backing up")
+                        }
+                    } else {
+                        Text("Back up now")
+                    }
+                }
+                .disabled(sync.isWorking)
+            } header: {
+                Text("iCloud")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Homes, room models, photos, plates, and world maps are kept in iCloud Drive and open on your iPhone and iPad. The newest copy of each file wins. An older copy stays in the home so you can choose it below. With the switch off, or when you are not signed in, homes stay on this device and the app works offline. A home deleted while sync is off can come back from iCloud the next time sync is on.")
+                    if let backupMessage = sync.backupMessage {
+                        Text(backupMessage)
+                    }
+                    if let lastError = sync.lastError {
+                        Text(lastError)
+                            .foregroundStyle(Theme.warn)
+                    }
+                }
+            }
+            if !sync.conflicts.isEmpty {
+                Section("Conflict copies") {
+                    ForEach(sync.conflicts) { copy in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(conflictTitle(copy))
+                            Text("Older copy kept \(copy.loserModifiedAt.formatted(date: .abbreviated, time: .shortened)). The newer file is the one in the home.")
+                                .font(.footnote)
+                                .foregroundStyle(Theme.secondary)
+                            HStack {
+                                Button("Use this copy") { sync.adopt(copy) }
+                                Button("Keep current") { sync.discard(copy) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func conflictTitle(_ copy: ConflictCopy) -> String {
+        let file = copy.originalRelativePath
+        guard let id = UUID(uuidString: copy.homeFolder), let home = store.home(id: id) else {
+            return file
+        }
+        return "\(home.name) · \(file)"
     }
 
     private var errorPresented: Binding<Bool> {

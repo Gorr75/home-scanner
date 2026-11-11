@@ -5,6 +5,7 @@ struct HomeScannerApp: App {
     @State private var store = HomeStore()
     @State private var pinBoard = PinBoard()
     @State private var assistant = HomeAssistantSettings()
+    @State private var iCloud = ICloudSyncController()
 
     var body: some Scene {
         WindowGroup {
@@ -12,6 +13,8 @@ struct HomeScannerApp: App {
                 .environment(store)
                 .environment(pinBoard)
                 .environment(assistant)
+                .environment(iCloud)
+                .task { iCloud.start(store: store) }
                 .task(id: assistant.generation) {
                     pinBoard.use(
                         provider: assistant.makeProvider(),

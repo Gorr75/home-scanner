@@ -1,8 +1,8 @@
 # Home Scanner
 
-Home Scanner measures a home with the iPhone LiDAR scanner and keeps the result on the device. You scan one room at a time, name it, and combine several rooms into a single floor. Each scan is stored as Apple's captured-room JSON plus a USDZ model. You can orbit the model, look at a top-down plan, drop device pins on it, and share the USDZ or a JSON layout.
+Home Scanner measures a home with the iPhone or iPad LiDAR scanner and keeps the result on the device. You scan one room at a time, name it, and combine several rooms into a single floor. Each scan is stored as Apple's captured-room JSON plus a USDZ model. You can orbit the model, look at a top-down plan, drop device pins on it, and share the USDZ or a JSON layout.
 
-There is no account. Scans stay on the iPhone until you send a floor plan to Home Assistant. Connect a base URL and a long-lived token in Settings (the token is stored in the Keychain). The JSON contract, the upload API, and install steps are in [docs/home-assistant.md](docs/home-assistant.md). What comes next is [ROADMAP.md](ROADMAP.md). Outdoor scanning is not in this version; the site-plan design is in [docs/roadmap.md](docs/roadmap.md).
+There is no Home Scanner account. With iCloud sync on (the default when this device is signed into iCloud), homes also live in iCloud Drive and open on your other iPhone or iPad. Settings shows whether that copy is synced, uploading, offline, or not signed in, and **Back up now** sends the library immediately. With sync off, or with no iCloud account, scans stay in the app and everything still works. Connect a Home Assistant base URL and a long-lived token in Settings (the token is stored in the Keychain). The JSON contract, the upload API, and install steps are in [docs/home-assistant.md](docs/home-assistant.md). What comes next is [ROADMAP.md](ROADMAP.md). Outdoor scanning is not in this version; the site-plan design is in [docs/roadmap.md](docs/roadmap.md).
 
 Bundle id: `se.jansson.homescan`.
 
@@ -20,7 +20,7 @@ Bundle id: `se.jansson.homescan`.
 3. On a LiDAR device: create a home, scan a room, name it, then scan the next room through the shared doorway and use **Combine into one floor**.
 4. In the simulator: run the app and tap **Sample**. That installs a two-room apartment (kitchen and living room) with a USDZ model, a floor plan, and four device pins backed by mock states.
 
-Scans are written under the app's Documents folder (`Homes/<id>/`), which the Files app can see.
+Scans are written under `Homes/<id>/`. That folder is in the app's Documents directory, which the Files app can see, or in iCloud Drive when sync is on.
 
 ## What you can do
 
@@ -47,12 +47,14 @@ HomeScanner.app       SwiftUI, RoomPlan, SceneKit
   ScanArchive         encode, USDZ export, StructureBuilder
   HomeStore           observable wrapper
   PinBoard            asks a HomeStateProvider for mock or live states
-  Settings            base URL plus Keychain token, entity search, test connection
+  Settings            base URL plus Keychain token, entity search, test connection, iCloud sync
+  ICloudSyncController  ubiquity container, metadata query, backup and restore
 
 RoomScanCore          Swift package, no UIKit and no RoomPlan
   Home, Room, FloorPlan, DevicePin
   HomeLayoutDocument  roomscan.home JSON
-  HomeRepository      on-device folders
+  HomeRepository      on-device folders, including the iCloud container
+  HomeLibraryMigrator one-time copy and per-file conflict copies
   HomeStateProvider   protocol
   MockHomeStateProvider
   HomeAssistantClient     REST, websocket events, upload
@@ -68,15 +70,18 @@ SceneKit is the viewer: it loads a RoomPlan USDZ when one exists, and otherwise 
 ### On-device layout
 
 ```text
-Documents/Homes/<home-uuid>/
+Documents/Homes/<home-uuid>/          when iCloud sync is off, or iCloud is unavailable
+iCloud Drive/Home Scanner/Homes/<home-uuid>/
   home.json
   rooms/<room-uuid>.captured.json
   rooms/<room-uuid>.usdz
   structure.captured.json
   structure.usdz
+  textures/  plates/  worldmaps/  annotations/
+  conflicts/                        older copies kept when two devices wrote the same file
 ```
 
-`home.json` is the interchange file. Apple's captured-room files are sidecars so a Home Assistant card does not have to parse RoomPlan's schema.
+The iCloud path is the ubiquity container `iCloud.se.jansson.homescan`, under `Documents/Homes`. Reads and writes there go through `NSFileCoordinator`, and `NSMetadataQuery` watches uploads and downloads. `home.json` is the interchange file. Apple's captured-room files are sidecars so a Home Assistant card does not have to parse RoomPlan's schema. Turning sync on copies an existing Documents library into the container once. After that, the newest copy of each file wins and the older one stays in `conflicts/` until you pick it in Settings.
 
 Coordinate notes that matter:
 
@@ -104,7 +109,7 @@ From the repo root:
 swift test --package-path RoomScanCore
 ```
 
-Covered: floor-plan geometry, the plan-to-screen mapping, safe relative paths, JSON export and rejection of an unknown format or version, pin edits, entity-id rules, the mock state provider, the unconfigured client, and saving/reloading homes on disk.
+Covered: floor-plan geometry, the plan-to-screen mapping, safe relative paths, JSON export and rejection of an unknown format or version, pin edits, entity-id rules, the mock state provider, the unconfigured client, saving/reloading homes on disk, and iCloud migration and per-file conflict copies.
 
 Not covered here: RoomPlan capture, USDZ loading in SceneKit, and the SwiftUI screens. Those need Xcode and, for scanning, a LiDAR device. The sample USDZ is generated by `scripts/make_sample_usdz.py` so the simulator has a model that matches the sample plan.
 

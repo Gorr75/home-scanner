@@ -5,7 +5,7 @@ import RoomScanCore
 @MainActor
 @Observable
 final class HomeStore {
-    private let repository: HomeRepository
+    private var repository: HomeRepository
     private(set) var homes: [Home]
     private(set) var warnings: [String]
     var loadError: String?
@@ -17,9 +17,7 @@ final class HomeStore {
     }
 
     convenience init() {
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        let root = documents.appendingPathComponent("Homes", isDirectory: true)
+        let root = HomeLibraryPaths.localHomesRoot()
         if let repository = try? HomeRepository(root: root) {
             self.init(repository: repository)
             return
@@ -35,6 +33,18 @@ final class HomeStore {
 
     func home(id: UUID) -> Home? {
         homes.first { $0.id == id }
+    }
+
+    /// Points the library at Documents or the iCloud container and reloads.
+    func useLibrary(at root: URL, disk: HomeDisk) throws {
+        repository = try HomeRepository(root: root, disk: disk)
+        refresh()
+        loadError = nil
+    }
+
+    func reload() throws {
+        try repository.reload()
+        refresh()
     }
 
     @discardableResult
@@ -152,7 +162,13 @@ final class HomeStore {
 
     func existingFile(homeId: UUID, relative: String?) -> URL? {
         guard let relative, let url = try? fileURL(homeId: homeId, relative: relative) else { return nil }
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let status = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]).ubiquitousItemDownloadingStatus
+        if status == .notDownloaded || status == .downloaded {
+            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+            return status == .downloaded ? url : nil
+        }
+        return url
     }
 
     func textureLibrary(homeId: UUID) -> TextureLibrary {
@@ -219,9 +235,8 @@ final class HomeStore {
         var files: [String: Data] = [:]
         let paths = home.rooms.compactMap(\.assets.usdz) + [home.structure?.usdz].compactMap { $0 }
         for relative in paths {
-            guard let url = existingFile(homeId: home.id, relative: relative) else { continue }
             do {
-                files[relative] = try Data(contentsOf: url)
+                files[relative] = try repository.contents(homeId: home.id, relative: relative)
             } catch {
                 continue
             }

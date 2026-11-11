@@ -12,6 +12,8 @@
 
 /* Begin PBXFileReference section */
 		A10000000000000000000004 /* HomeScanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HomeScanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000013 /* HomeScanner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HomeScanner.entitlements; sourceTree = "<group>"; };
+		A10000000000000000000014 /* HomeScanner-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = HomeScanner-Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -38,6 +40,8 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000005 /* RoomScan */,
+				A10000000000000000000013 /* HomeScanner.entitlements */,
+				A10000000000000000000014 /* HomeScanner-Info.plist */,
 				A10000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -256,16 +260,18 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = HomeScanner.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6A4622H2P7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HomeScanner-Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Home Scanner";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you. Scans stay on this device.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you. Scans stay on this device, and in iCloud Drive when sync is on.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Home Scanner uses motion sensors while you walk so the scan stays aligned. Motion data stays on this device.";
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Home Scanner connects to your Home Assistant server on the local network to read devices and upload a floor plan. The token stays in the Keychain on this iPhone.";
@@ -296,16 +302,18 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = HomeScanner.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6A4622H2P7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HomeScanner-Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Home Scanner";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you. Scans stay on this device.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Home Scanner uses the camera and LiDAR to measure the room in front of you. Scans stay on this device, and in iCloud Drive when sync is on.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Home Scanner uses motion sensors while you walk so the scan stays aligned. Motion data stays on this device.";
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Home Scanner connects to your Home Assistant server on the local network to read devices and upload a floor plan. The token stays in the Keychain on this iPhone.";

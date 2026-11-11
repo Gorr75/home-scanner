@@ -87,4 +87,5 @@ enum PreviewStore {
         .environment(PreviewStore.make())
         .environment(PinBoard())
         .environment(HomeAssistantSettings(defaults: UserDefaults(suiteName: "HomeScannerPreview") ?? .standard))
+        .environment(ICloudSyncController(defaults: UserDefaults(suiteName: "HomeScannerPreview") ?? .standard))
 }

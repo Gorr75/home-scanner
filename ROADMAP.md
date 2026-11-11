@@ -35,7 +35,7 @@ Done:
 - **Photo-real card.** Photo mode composites a lights-off base plate and one plate per light with `mix-blend-mode: screen`. Opacity and colour follow the live Home Assistant brightness and colour. Tapping a light's region toggles that entity. The app renders the plates from the saved viewpoint (all lights off, then one light at a time, day and night) and uploads them to `/local/home_scanner/<id>/plates/` with `plates/manifest.json`. Plan and 3D stay available. `viewer.html` is unchanged.
 - **Placeable furniture and decor.** A catalog of sofas, chairs, tables, beds, shelves, lamps, plants, rugs, a television, and a few more drops into the 3D view and the floor plan. Each item moves, rotates, and scales, and it can replace a RoomPlan box. Placements live on the room and travel in `layout.json`, `model.glb`, and `model.usdz`.
 
-**Deferred.** Sweet Home 3D export (`.sh3d`). People who already use that floor-plan plugin can furnish there and keep its picture-elements workflow.
+**Deferred.** Sweet Home 3D export (`.sh3d`). People who already use that floor-plan plugin can furnish there and keep its picture-elements workflow. CAD exchange sits with it: IFC, DXF, OBJ, glTF, and USD, so a measured room can be opened in a CAD tool. The app already writes GLB and USDZ for Home Assistant. These are extra formats, taken from [Metaroom](https://apps.apple.com/se/app/metaroom-3d-room-scanner/id1637077163).
 
 ## v0.5
 
@@ -52,25 +52,39 @@ Done. RoomPlan still measures the room. These tools correct walls, doors, and wi
 
 Done. Floors stack in one home, using the same optional `floor` integer the card already reads. A missing `floor` means the room is not on a storey yet. The plan has floor tabs and a faint ghost of the floor below. A new floor copies the one underneath, or starts as one room from that footprint, and writes the next `floor` index. Each room has a flooring material, and a scan photo still covers the floor when one was captured. In the dollhouse, walls fade as the camera approaches.
 
+## iCloud backup and sync
+
+Done. Homes, room layouts, USDZ models, photos, plates, world maps, and later annotation media are stored in the app's iCloud Drive container (`iCloud.se.jansson.homescan`) when iCloud sync is on. Settings has the switch, on by default when the device is signed into iCloud, a status of synced, uploading, offline, or not signed in, and **Back up now**. A new install downloads the library already in the container. Homes already on the device are copied in once. Each file keeps the newer write. The older file stays as a conflict copy and can be chosen in Settings. With the switch off, or with no iCloud account, homes stay on the device and every feature still works offline. The iPhone and iPad share this library.
+
+## In progress
+
+Other changes, already underway:
+
+- **Notes and snapshots during scanning.** A note or a snapshot can be taken while the scan is still running, and it stays on the room.
+- **Large multi-room scan.** One scan can cover a long run of rooms instead of stopping at a single room.
+
 ## Next
 
 In this order:
 
 1. **Measure and annotate on the scan.** Tap two points for a distance, then area and volume. Labels, photos, and notes pin to a spot in the room, such as a fuse box photo or a leak note. A photo can carry a dictated voice note, and the app positions that photo on the plan.
 2. **Crash-safe scanning.** The scan saves incrementally during capture, so a failed scan keeps what was captured. The app warns before scanning when device storage is low.
-3. **iCloud backup and sync.** Homes, scans, layouts, GLB and USDZ models, photos, annotations, and inventory sync through a CloudKit private database or an iCloud Drive container. The copy survives a new phone, restores on reinstall, and opens on an iPad or a Mac. The app ID needs an iCloud container entitlement.
-   - **Follow-on: an iPad or Mac viewer.** The phone is the scanner, and other devices only need to open the same home.
-4. **Extend a scan across sessions.** Add a room to an existing home later and auto-align it, with relocalization and shared anchors, reliably.
-5. **Home inventory.** Each appliance or device keeps a model, a serial, a warranty date, and an attached receipt and manual. The record links to a Home Assistant device pin, so one pin shows live state and the warranty.
+3. **Guided first scan.** The first time someone scans, the app walks them through it one step at a time.
+4. **Low-light scan quality.** Warn when the room is too dark, and prefer frames that are sharp enough to use.
+5. **Colored detected objects.** Doors, windows, and furniture that RoomPlan finds can keep a color or a texture, not only a flat box. Walls and floors already take photos.
+6. **Extend a scan across sessions.** Add a room to an existing home later and auto-align it, with relocalization and shared anchors, reliably.
+7. **Home inventory.** Each appliance or device keeps a model, a serial, a warranty date, and an attached receipt and manual. The record links to a Home Assistant device pin, so one pin shows live state and the warranty.
 
 ## After that
 
 In this order:
 
-6. **First-person walkthrough.** Walk the home at eye height, or follow a recorded camera path. The same view belongs on a tablet.
-7. **Maintenance checklists.** A checklist is tied to a room or an item. It exports to Home Assistant to-dos when the phone is connected, and it works as an in-app reminder otherwise.
-8. **Renovation calculator.** Paint, flooring, and wallpaper quantities come from the measured surfaces, with a rough cost estimate.
-9. **Ceiling height, areas, and heat loss.** Each room records its ceiling height and its wall and window areas, with a rough heat-loss estimate. The figures stay on the room. When the phone is connected, that estimate can feed Home Assistant energy and heating.
+8. **First-person walkthrough.** Walk the home at eye height, or follow a recorded camera path. The same view belongs on a tablet.
+9. **Scan walkthrough video.** Export that walk as an `.mp4`.
+10. **Maintenance checklists.** A checklist is tied to a room or an item. It exports to Home Assistant to-dos when the phone is connected, and it works as an in-app reminder otherwise.
+11. **Renovation calculator.** Paint, flooring, and wallpaper quantities come from the measured surfaces, with a rough cost estimate.
+12. **Ceiling height, areas, and heat loss.** Each room records its ceiling height and its wall and window areas, with a rough heat-loss estimate. The figures stay on the room. When the phone is connected, that estimate can feed Home Assistant energy and heating.
+13. **Room report.** An Excel or CSV file lists each room with its areas. The PDF floor plan already carries the same figures on one page.
 
 ## Later
 
@@ -82,6 +96,7 @@ These need another navigation model, a heavier renderer, or another device.
 - **Bluetooth laser measure.** Optional Bosch and Leica support for exact wall lengths.
 - **Ray tracing on capable devices, and export of a scene image.** The photo-real card needs stills, and a high-quality renderer is how those plates and a shareable picture get made.
 - **Outdoor site plan.** A yard or facade stays a separate source: an ARKit mesh plus a drone or aerial photo as an underlay. The design is in [docs/roadmap.md](docs/roadmap.md).
+- **Mac viewer.** The iPhone and iPad already open the same iCloud library. A Mac would only need to open that home.
 
 ## Where this list came from
 
@@ -92,6 +107,7 @@ The groups come from products that already sit next to Home Assistant, from phon
 - [Polycam](https://apps.apple.com/us/app/polycam-3d-scanner-modeling/id1532482376), a phone 3D scanner. Reviews complain about broken scan extension and lost long scans. Crash-safe capture and extending a scan across sessions come from that. Gaussian splat capture from video is the photo-real upgrade it already ships.
 - [magicplan](https://apps.apple.com/us/app/magicplan/id427424432), a measured floor-plan app. Measure and annotate, a walkthrough of the plan, 360° panoramas, and quantities for paint, flooring, and wallpaper are what it is used for.
 - [RoomScan Pro](https://apps.apple.com/us/app/roomscan-pro-lidar-floor-plans/id1504050801), a LiDAR floor-plan app. Dictated voice notes on photos that land on the plan, ceiling height with wall and window areas, a per-room heat-loss estimate, a tap-the-walls mode for a hard room, and Bosch and Leica laser measures are what it already does.
+- [Metaroom](https://apps.apple.com/se/app/metaroom-3d-room-scanner/id1637077163), a LiDAR scanner aimed at CAD. From its App Store description and release notes: a guided first scan, low-light frame quality, colored detected objects, notes and snapshots during scanning, a large multi-room scan, an `.mp4` scan video, an Excel room report, and IFC, DXF, OBJ, glTF, and USD export. Notes, snapshots, and the large multi-room scan are in progress above. The CAD formats are deferred with Sweet Home 3D.
 - The public plan-editor demo from 0xProbability (House Control on X): rooms drawn as boxes with handles, snap guides, and openings that slide along a wall. That pattern is geometry only. Device control stays with the Home Assistant work above.
 
 ## What we keep
