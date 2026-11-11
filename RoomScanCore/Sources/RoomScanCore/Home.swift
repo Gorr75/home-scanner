@@ -238,6 +238,8 @@ public struct Home: Codable, Equatable, Identifiable, Sendable {
     public var rooms: [Room]
     public var pins: [DevicePin]
     public var structure: StructureLink?
+    /// Saved ARWorldMap for this home. Nil on homes scanned before place-lock existed.
+    public var worldMap: ScanWorldMap?
 
     public init(
         id: UUID,
@@ -246,7 +248,8 @@ public struct Home: Codable, Equatable, Identifiable, Sendable {
         updatedAt: Date,
         rooms: [Room],
         pins: [DevicePin],
-        structure: StructureLink? = nil
+        structure: StructureLink? = nil,
+        worldMap: ScanWorldMap? = nil
     ) {
         self.id = id
         self.name = name
@@ -255,6 +258,7 @@ public struct Home: Codable, Equatable, Identifiable, Sendable {
         self.rooms = rooms
         self.pins = pins
         self.structure = structure
+        self.worldMap = worldMap
     }
 
     public func room(id: UUID) -> Room? {

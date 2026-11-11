@@ -6,14 +6,38 @@ import RoomScanCore
 @Observable
 final class HomeStore {
     private let repository: HomeRepository
+    let checkpoints: ScanCheckpointStore
     private(set) var homes: [Home]
     private(set) var warnings: [String]
     var loadError: String?
+    /// The scan that is open right now. Recovery ignores it until the screen closes.
+    var activeCheckpointID: UUID? {
+        didSet { refreshRecovery() }
+    }
+    private(set) var recovery: ScanRecoveryOffer?
 
-    init(repository: HomeRepository) {
+    init(repository: HomeRepository, checkpoints: ScanCheckpointStore? = nil) {
         self.repository = repository
+        if let checkpoints {
+            self.checkpoints = checkpoints
+        } else {
+            let sibling = repository.root
+                .deletingLastPathComponent()
+                .appendingPathComponent("ScanCheckpoints", isDirectory: true)
+            if let store = try? ScanCheckpointStore(root: sibling) {
+                self.checkpoints = store
+            } else {
+                let emergency = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("HomeScannerCheckpoints", isDirectory: true)
+                guard let store = try? ScanCheckpointStore(root: emergency) else {
+                    fatalError("Home Scanner could not create a folder for scan checkpoints.")
+                }
+                self.checkpoints = store
+            }
+        }
         homes = repository.homes
         warnings = repository.warnings
+        refreshRecovery()
     }
 
     convenience init() {
@@ -61,7 +85,9 @@ final class HomeStore {
 
     func deleteHome(id: UUID) throws {
         try repository.deleteHome(id: id)
+        checkpoints.discardAll(homeId: id)
         refresh()
+        refreshRecovery()
     }
 
     func deleteRoom(homeId: UUID, roomId: UUID) throws {
@@ -75,15 +101,24 @@ final class HomeStore {
         name: String,
         floorPlan: FloorPlan,
         capturedJSON: Data,
-        usdz: Data
+        usdz: Data,
+        floor: Int? = nil
     ) throws -> Home {
         let home = try repository.addRoom(
             homeId: homeId,
             name: name,
             floorPlan: floorPlan,
             capturedJSON: capturedJSON,
-            usdz: usdz
+            usdz: usdz,
+            floor: floor
         )
+        refresh()
+        return home
+    }
+
+    @discardableResult
+    func addCapturedRooms(homeId: UUID, drafts: [CapturedRoomDraft]) throws -> Home {
+        let home = try repository.addRooms(homeId: homeId, drafts: drafts)
         refresh()
         return home
     }
@@ -94,7 +129,7 @@ final class HomeStore {
         roomId: UUID,
         floorPlan: FloorPlan,
         capturedJSON: Data,
-        usdz: Data
+        usdz: Data?
     ) throws -> Home {
         let home = try repository.replaceRoom(
             homeId: homeId,
@@ -114,6 +149,7 @@ final class HomeStore {
         usdz: Data,
         overview: FloorPlan,
         roomIds: [UUID],
+        coordinatesAreUnified: Bool = false,
         alignment: RoomAlignmentResult = .none
     ) throws -> Home {
         let home = try repository.attachStructure(
@@ -122,13 +158,77 @@ final class HomeStore {
             usdz: usdz,
             overview: overview,
             roomIds: roomIds,
-            coordinatesAreUnified: false,
+            coordinatesAreUnified: coordinatesAreUnified,
             placements: alignment.placements.isEmpty ? nil : alignment.placements,
             overlaps: alignment.overlaps.isEmpty ? nil : alignment.overlaps,
             shellWasRebuilt: alignment.hidesMergedModel
         )
         refresh()
         return home
+    }
+
+    @discardableResult
+    func updateAlignment(
+        homeId: UUID,
+        placements: [RoomPlacement],
+        overlaps: [RoomOverlap],
+        coordinatesAreUnified: Bool,
+        shellWasRebuilt: Bool,
+        overview: FloorPlan?,
+        roomIds: [UUID]
+    ) throws -> Home {
+        let home = try repository.updateAlignment(
+            homeId: homeId,
+            placements: placements,
+            overlaps: overlaps,
+            coordinatesAreUnified: coordinatesAreUnified,
+            shellWasRebuilt: shellWasRebuilt,
+            overview: overview,
+            roomIds: roomIds
+        )
+        refresh()
+        return home
+    }
+
+    @discardableResult
+    func writeWorldMap(homeId: UUID, data: Data, roomIds: [UUID], anchorRoomId: UUID?) throws -> Home {
+        let home = try repository.writeWorldMap(
+            homeId: homeId,
+            data: data,
+            roomIds: roomIds,
+            anchorRoomId: anchorRoomId
+        )
+        refresh()
+        return home
+    }
+
+    func worldMapData(homeId: UUID) -> Data? {
+        guard let home = home(id: homeId) else { return nil }
+        return repository.worldMapData(in: home)
+    }
+
+    @discardableResult
+    func updateWorldMapMembership(homeId: UUID, roomIds: [UUID], anchorRoomId: UUID?) throws -> Home {
+        let home = try repository.updateWorldMapMembership(
+            homeId: homeId,
+            roomIds: roomIds,
+            anchorRoomId: anchorRoomId
+        )
+        refresh()
+        return home
+    }
+
+    func refreshRecovery() {
+        recovery = checkpoints.recoveryOffer(
+            homeName: { [repository] id in repository.homes.first { $0.id == id }?.name },
+            ignoring: activeCheckpointID
+        )
+        warnings = repository.warnings + checkpoints.warnings
+    }
+
+    func discardCheckpoint(id: UUID) throws {
+        try checkpoints.discard(id)
+        refreshRecovery()
     }
 
     @discardableResult
@@ -239,7 +339,7 @@ final class HomeStore {
 
     private func refresh() {
         homes = repository.homes
-        warnings = repository.warnings
+        warnings = repository.warnings + checkpoints.warnings
     }
 }
 

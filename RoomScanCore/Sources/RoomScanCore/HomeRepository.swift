@@ -7,6 +7,35 @@ public enum HomeRepositoryError: Error, Equatable, Sendable {
     case unreadable(String)
 }
 
+/// One captured room ready to land in a home. `id` is reused from a checkpoint when it is free.
+public struct CapturedRoomDraft: Equatable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var floor: Int?
+    public var floorPlan: FloorPlan
+    public var capturedJSON: Data?
+    public var usdz: Data?
+    public var createdAt: Date?
+
+    public init(
+        id: UUID,
+        name: String,
+        floor: Int?,
+        floorPlan: FloorPlan,
+        capturedJSON: Data?,
+        usdz: Data?,
+        createdAt: Date? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.floor = floor
+        self.floorPlan = floorPlan
+        self.capturedJSON = capturedJSON
+        self.usdz = usdz
+        self.createdAt = createdAt
+    }
+}
+
 extension HomeRepositoryError: LocalizedError {
     public var errorDescription: String? {
         switch self {
@@ -85,7 +114,7 @@ public final class HomeRepository {
         let folder = folderURL(for: stored.id)
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
         let data = try HomeLayoutDocument(home: stored).encode()
-        try data.write(to: folder.appendingPathComponent("home.json"), options: .atomic)
+        try AtomicFile.write(data, to: folder.appendingPathComponent("home.json"), fileManager: fileManager)
         if let index = homes.firstIndex(where: { $0.id == stored.id }) {
             homes[index] = stored
         } else {
@@ -117,32 +146,62 @@ public final class HomeRepository {
         floorPlan: FloorPlan,
         capturedJSON: Data?,
         usdz: Data?,
+        floor: Int? = nil,
+        now: Date = Date()
+    ) throws -> Home {
+        try addRooms(
+            homeId: homeId,
+            drafts: [
+                CapturedRoomDraft(
+                    id: UUID(),
+                    name: name,
+                    floor: floor,
+                    floorPlan: floorPlan,
+                    capturedJSON: capturedJSON,
+                    usdz: usdz,
+                    createdAt: now
+                )
+            ],
+            now: now
+        )
+    }
+
+    /// Adds every draft, then writes `home.json` once. A draft id is kept when the home
+    /// does not already use it, so a resumed checkpoint can save the same room id.
+    @discardableResult
+    public func addRooms(
+        homeId: UUID,
+        drafts: [CapturedRoomDraft],
         now: Date = Date()
     ) throws -> Home {
         guard var home = homes.first(where: { $0.id == homeId }) else {
             throw HomeRepositoryError.missingHome(homeId)
         }
-        let roomId = UUID()
-        var assets = RoomAssets()
-        if let capturedJSON {
-            let relative = "rooms/\(roomId.uuidString).captured.json"
-            try write(capturedJSON, homeId: homeId, relative: relative)
-            assets.capturedRoom = relative
+        for draft in drafts {
+            // A retried save keeps the checkpoint id instead of writing a second copy.
+            if home.rooms.contains(where: { $0.id == draft.id }) { continue }
+            let roomId = draft.id
+            var assets = RoomAssets()
+            if let capturedJSON = draft.capturedJSON {
+                let relative = "rooms/\(roomId.uuidString).captured.json"
+                try write(capturedJSON, homeId: homeId, relative: relative)
+                assets.capturedRoom = relative
+            }
+            if let usdz = draft.usdz {
+                let relative = "rooms/\(roomId.uuidString).usdz"
+                try write(usdz, homeId: homeId, relative: relative)
+                assets.usdz = relative
+            }
+            let trimmed = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            home.rooms.append(Room(
+                id: roomId,
+                name: trimmed.isEmpty ? "Room" : trimmed,
+                createdAt: draft.createdAt ?? now,
+                floorPlan: draft.floorPlan,
+                assets: assets,
+                floor: draft.floor
+            ))
         }
-        if let usdz {
-            let relative = "rooms/\(roomId.uuidString).usdz"
-            try write(usdz, homeId: homeId, relative: relative)
-            assets.usdz = relative
-        }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let room = Room(
-            id: roomId,
-            name: trimmed.isEmpty ? "Room" : trimmed,
-            createdAt: now,
-            floorPlan: floorPlan,
-            assets: assets
-        )
-        home.rooms.append(room)
         return try save(home, now: now)
     }
 
@@ -166,6 +225,18 @@ public final class HomeRepository {
         if structureIncludedRoom {
             clearStructureFiles(homeId: homeId)
             home.structure = nil
+        }
+        if var map = home.worldMap {
+            map.roomIds.removeAll { $0 == roomId }
+            if map.anchorRoomId == roomId {
+                map.anchorRoomId = map.roomIds.first
+            }
+            if map.roomIds.isEmpty {
+                try? removeFile(homeId: homeId, relative: map.file)
+                home.worldMap = nil
+            } else {
+                home.worldMap = map
+            }
         }
         return try save(home, now: now)
     }
@@ -203,6 +274,90 @@ public final class HomeRepository {
             overviewFloorPlan: overview,
             placements: placements,
             overlaps: overlaps,
+            shellWasRebuilt: shellWasRebuilt ? true : nil
+        )
+        return try save(home, now: now)
+    }
+
+    /// Writes the archived ARWorldMap and records which rooms share its coordinate space.
+    /// Floor, furniture, viewpoints, plates, and pins are left as they are.
+    @discardableResult
+    public func writeWorldMap(
+        homeId: UUID,
+        data: Data,
+        roomIds: [UUID],
+        anchorRoomId: UUID?,
+        now: Date = Date()
+    ) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        let relative = home.worldMap?.file ?? ScanWorldMap.relativePath
+        try write(data, homeId: homeId, relative: relative)
+        let anchor = anchorRoomId ?? roomIds.first
+        home.worldMap = ScanWorldMap(file: relative, savedAt: now, roomIds: roomIds, anchorRoomId: anchor)
+        return try save(home, now: now)
+    }
+
+    public func worldMapData(in home: Home) -> Data? {
+        guard let relative = home.worldMap?.file else { return nil }
+        return textureData(homeId: home.id, relative: relative)
+    }
+
+    /// Drops a room from the saved map after a rescan that did not lock onto it.
+    /// The map file stays while any listed room remains.
+    @discardableResult
+    public func updateWorldMapMembership(
+        homeId: UUID,
+        roomIds: [UUID],
+        anchorRoomId: UUID?,
+        now: Date = Date()
+    ) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        guard var map = home.worldMap else { return home }
+        map.roomIds = roomIds
+        map.anchorRoomId = anchorRoomId ?? roomIds.first
+        map.savedAt = now
+        if roomIds.isEmpty {
+            try? removeFile(homeId: homeId, relative: map.file)
+            home.worldMap = nil
+        } else {
+            home.worldMap = map
+        }
+        return try save(home, now: now)
+    }
+
+    /// Rewrites placements after a manual nudge or a doorway fallback.
+    /// Room floors, furniture, viewpoints, plates, and pins stay in scan space.
+    @discardableResult
+    public func updateAlignment(
+        homeId: UUID,
+        placements: [RoomPlacement],
+        overlaps: [RoomOverlap],
+        coordinatesAreUnified: Bool,
+        shellWasRebuilt: Bool,
+        overview: FloorPlan?,
+        roomIds: [UUID],
+        now: Date = Date()
+    ) throws -> Home {
+        guard var home = homes.first(where: { $0.id == homeId }) else {
+            throw HomeRepositoryError.missingHome(homeId)
+        }
+        if shellWasRebuilt {
+            clearStructureFiles(homeId: homeId)
+        }
+        let previous = home.structure
+        home.structure = StructureLink(
+            builtAt: now,
+            roomIds: roomIds,
+            coordinatesAreUnified: coordinatesAreUnified,
+            usdz: shellWasRebuilt ? nil : previous?.usdz,
+            capturedStructure: shellWasRebuilt ? nil : previous?.capturedStructure,
+            overviewFloorPlan: overview ?? previous?.overviewFloorPlan,
+            placements: placements.isEmpty ? nil : placements,
+            overlaps: overlaps.isEmpty ? nil : overlaps,
             shellWasRebuilt: shellWasRebuilt ? true : nil
         )
         return try save(home, now: now)
@@ -333,7 +488,7 @@ public final class HomeRepository {
         if name.isEmpty { name = "Home" }
         name = name.replacingOccurrences(of: "/", with: "-")
         let url = fileManager.temporaryDirectory.appendingPathComponent("\(name).roomscan.json")
-        try data.write(to: url, options: .atomic)
+        try AtomicFile.write(data, to: url, fileManager: fileManager)
         return url
     }
 
@@ -351,11 +506,7 @@ public final class HomeRepository {
 
     private func write(_ data: Data, homeId: UUID, relative: String) throws {
         let url = try fileURL(homeId: homeId, relative: relative)
-        try fileManager.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try data.write(to: url, options: .atomic)
+        try AtomicFile.write(data, to: url, fileManager: fileManager)
     }
 
     private func surfaceIDs(in plan: FloorPlan) -> Set<UUID> {

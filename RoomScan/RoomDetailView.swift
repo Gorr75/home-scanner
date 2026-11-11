@@ -179,7 +179,12 @@ struct RoomDetailView: View {
             }
         }
         .fullScreenCover(isPresented: $rescanning) {
-            ScanRoomView(homeID: homeID, replacingRoomID: roomID) { rescanning = false }
+            ScanRoomView(launch: ScanLaunch(
+                homeID: homeID,
+                kind: .room,
+                floor: store.home(id: homeID)?.room(id: roomID)?.floor,
+                replacingRoomID: roomID
+            )) { rescanning = false }
         }
         .sheet(isPresented: $texturing) {
             TextureStudioView(homeID: homeID, roomID: roomID)
