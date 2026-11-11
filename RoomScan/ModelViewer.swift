@@ -1,5 +1,6 @@
 import QuartzCore
 import SceneKit
+import simd
 import SwiftUI
 import RoomScanCore
 import UIKit
@@ -39,6 +40,16 @@ struct RoomModelView: UIViewRepresentable {
     /// Increment to read the current camera into `onCaptureViewpoint`.
     var captureToken: Int = 0
     var onCaptureViewpoint: ((CameraViewpoint) -> Void)? = nil
+    var markupPins: [MarkupPin] = []
+    var markupSegments: [MarkupSegment] = []
+    var draftStart: Vec3? = nil
+    var draftEnd: Vec3? = nil
+    var selectedMarkupID: UUID? = nil
+    var measureEnabled: Bool = false
+    var annotateEnabled: Bool = false
+    var onMeasurePoint: (Vec3) -> Void = { _ in }
+    var onAnnotatePoint: (Vec3) -> Void = { _ in }
+    var onSelectMarkup: (UUID) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -123,6 +134,7 @@ struct RoomModelView: UIViewRepresentable {
         if let scene = view.scene {
             applyLighting(to: scene, in: view)
             replacePins(in: scene)
+            replaceMarkup(in: scene)
             replaceFurniture(in: scene)
             replaceTextures(in: scene)
         }
@@ -452,6 +464,79 @@ struct RoomModelView: UIViewRepresentable {
         }
     }
 
+    private func replaceMarkup(in scene: SCNScene) {
+        scene.rootNode.childNodes
+            .filter { $0.name?.hasPrefix("markup:") == true }
+            .forEach { $0.removeFromParentNode() }
+        for segment in markupSegments {
+            addSegment(from: segment.start, to: segment.end, title: segment.title, name: "markup:\(segment.id.uuidString)", in: scene)
+        }
+        if let draftStart {
+            addMarker(at: draftStart, name: "markup:draft-start", selected: true, color: UIColor(Theme.accentOnCharcoal), in: scene)
+            if let draftEnd {
+                let title = MeasureSnap.label(from: draftStart, to: draftEnd)
+                addSegment(from: draftStart, to: draftEnd, title: title, name: "markup:draft-line", in: scene)
+            }
+        }
+        for pin in markupPins {
+            let color = pin.kind == .inventory ? UIColor(Theme.warn) : UIColor(Theme.accentOnCharcoal)
+            addMarker(
+                at: pin.position,
+                name: "markup:\(pin.id.uuidString)",
+                selected: pin.id == selectedMarkupID,
+                color: color,
+                title: pin.id == selectedMarkupID ? pin.title : nil,
+                in: scene
+            )
+        }
+    }
+
+    private func addMarker(at position: Vec3, name: String, selected: Bool, color: UIColor, title: String? = nil, in scene: SCNScene) {
+        let root = SCNNode()
+        root.name = name
+        let sphere = SCNSphere(radius: selected ? 0.07 : 0.05)
+        sphere.segmentCount = 16
+        let surface = material(color, roughness: 0.35)
+        surface.lightingModel = .constant
+        sphere.materials = [surface]
+        let node = SCNNode(geometry: sphere)
+        node.position = SCNVector3(Float(position.x), Float(position.y), Float(position.z))
+        root.addChildNode(node)
+        if let title {
+            let text = labelNode(title)
+            text.position = SCNVector3(Float(position.x), Float(position.y + 0.16), Float(position.z))
+            root.addChildNode(text)
+        }
+        scene.rootNode.addChildNode(root)
+    }
+
+    private func addSegment(from start: Vec3, to end: Vec3, title: String, name: String, in scene: SCNScene) {
+        let delta = end - start
+        let length = delta.length
+        guard length > 0.01 else { return }
+        let cylinder = SCNCylinder(radius: 0.012, height: CGFloat(length))
+        let surface = material(UIColor(Theme.accentOnCharcoal), roughness: 0.4)
+        surface.lightingModel = .constant
+        cylinder.materials = [surface]
+        let node = SCNNode(geometry: cylinder)
+        node.name = name
+        let mid = Vec3(
+            x: (start.x + end.x) / 2,
+            y: (start.y + end.y) / 2,
+            z: (start.z + end.z) / 2
+        )
+        node.position = SCNVector3(Float(mid.x), Float(mid.y), Float(mid.z))
+        node.simdOrientation = simd_quatf(
+            from: SIMD3<Float>(0, 1, 0),
+            to: SIMD3<Float>(Float(delta.x), Float(delta.y), Float(delta.z))
+        )
+        scene.rootNode.addChildNode(node)
+        let text = labelNode(title)
+        text.position = SCNVector3(Float(mid.x), Float(mid.y + 0.12), Float(mid.z))
+        text.name = name
+        scene.rootNode.addChildNode(text)
+    }
+
     private func applyOpeningCamera(in view: SCNView, scene: SCNScene) {
         if let savedViewpoint {
             placeCamera(savedViewpoint, in: view, scene: scene)
@@ -662,6 +747,28 @@ struct RoomModelView: UIViewRepresentable {
             let hits = view.hitTest(point, options: [
                 SCNHitTestOption.searchMode: SCNHitTestSearchMode.all.rawValue
             ])
+            if parent.measureEnabled || parent.annotateEnabled {
+                if parent.annotateEnabled, let markup = hits.lazy.compactMap({ self.markupID(in: $0.node) }).first {
+                    parent.onSelectMarkup(markup)
+                    return
+                }
+                if let hit = hits.first(where: { self.pinID(in: $0.node) == nil && self.markupID(in: $0.node) == nil }) {
+                    let location = hit.worldCoordinates
+                    let world = Vec3(x: Double(location.x), y: Double(location.y), z: Double(location.z))
+                    if parent.measureEnabled {
+                        parent.onMeasurePoint(world)
+                    } else {
+                        parent.onAnnotatePoint(world)
+                    }
+                }
+                return
+            }
+            if let markup = hits.lazy.compactMap({ self.markupID(in: $0.node) }).first {
+                parent.onSelectMarkup(markup)
+                parent.onSelectPin(nil)
+                parent.onSelectFurniture(nil)
+                return
+            }
             if let pin = hits.lazy.compactMap({ self.pinID(in: $0.node) }).first {
                 parent.onSelectPin(pin)
                 parent.onSelectFurniture(nil)
@@ -751,6 +858,18 @@ struct RoomModelView: UIViewRepresentable {
             while let cursor = current {
                 if let name = cursor.name, name.hasPrefix("furniture:"),
                    let id = UUID(uuidString: String(name.dropFirst("furniture:".count))) {
+                    return id
+                }
+                current = cursor.parent
+            }
+            return nil
+        }
+
+        private func markupID(in node: SCNNode) -> UUID? {
+            var current: SCNNode? = node
+            while let cursor = current {
+                if let name = cursor.name, name.hasPrefix("markup:"),
+                   let id = UUID(uuidString: String(name.dropFirst("markup:".count))) {
                     return id
                 }
                 current = cursor.parent

@@ -65,6 +65,8 @@ Each LiDAR scan starts at its own origin. Pins are stored in that room's coordin
 | `viewpoint` | Optional camera saved from the 3D view, in that room's scan space. `position` and `target` are meters. `field_of_view` is degrees. Omitted until someone taps Save viewpoint. |
 | `flooring` | Optional finish: `oak`, `walnut`, `tile`, `stone`, `carpet`, `concrete`, `herringbone`, or `painted`. A scan photo still covers the floor when one exists. |
 | `furniture` | Optional catalog items. Omitted when the room has none. |
+| `annotations` | Optional notes, photos, voice notes, and saved measurements. Omitted when the room has none. Positions stay in that room's scan space, and the same `placements` yaw and translation that move pins also move them. |
+| `inventory` | Optional appliances, catalog furniture, and items added by hand. Omitted when the room has none. |
 
 ### `furniture[]`
 
@@ -77,7 +79,38 @@ Each LiDAR scan starts at its own origin. Pins are stored in that room's coordin
 | `scale` | Multiplier on the catalog item's width, height, and depth. |
 | `replaces_object_id` | Optional id of a RoomPlan `objects[]` box this item stands in for. The box stays in the plan and is hidden while this is set. |
 
-`assets` is `{}` when the room has no sidecar files. Paths inside it are for this phone. An integration that only draws the plan and the pins can ignore them. Reject any path that is absolute or contains `..`.
+### `annotations[]`
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable note id. |
+| `created_at` | When the note was saved. |
+| `text` | The label. A measurement uses the distance, such as `3.00 m`, until someone renames it. |
+| `position` | Pin position in the room's scan space. For a measurement this is the midpoint. |
+| `photo` | Optional path relative to the home folder, `notes/<id>.jpg`. |
+| `audio` | Optional path relative to the home folder, `notes/<id>.m4a`. |
+| `transcript` | Optional text from on-device speech recognition. |
+| `kind` | `note` or `measurement`. Missing means `note`. |
+| `measurement` | Present when `kind` is `measurement`. `start` and `end` are in the room's scan space. |
+
+### `inventory[]`
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable item id. |
+| `name`, `category` | What the item is. `category` may be a RoomPlan token such as `refrigerator`. |
+| `brand`, `model`, `serial` | Optional. |
+| `purchase_date` | Optional ISO 8601 date. |
+| `price` | Optional amount, two decimal places. The file does not store a currency code. |
+| `photos` | Optional relative paths, `inventory/<id>-<n>.jpg`. |
+| `receipt` | Optional relative path, `inventory/<id>-receipt.jpg`. |
+| `notes` | Optional. |
+| `position` | Optional point in the room's scan space. |
+| `furniture_id` | Optional catalog placement this item is linked to. |
+| `object_id` | Optional RoomPlan object this item is linked to. |
+| `source` | `detected`, `catalog`, or `manual`. Missing means `manual`. |
+
+`assets` is `{}` when the room has no sidecar files. Paths inside it, and photo or audio paths on notes and inventory, are for this phone and for the upload folder. An integration that only draws the plan and the pins can ignore them. Reject any path that is absolute or contains `..`.
 
 ### `floor_plan`
 
@@ -158,6 +191,8 @@ A room folder may also contain photo plates. They are optional. An upload that o
 ```
 
 `manifest.json` is `home_scanner.plates` version 1. The base image is the room with every light off. Each light image is that lamp's contribution, for the card to screen-blend. Day and night are separate sets. The whole-home folder does not carry plates; each room folder does.
+
+A folder may also contain note and inventory media named in `layout.json`: `notes/<id>.jpg`, `notes/<id>.m4a`, `inventory/<id>-<n>.jpg`, and `inventory/<id>-receipt.jpg`. The card can ignore those files. The text, positions, and paths are already in `layout.json`.
 
 `model.glb` is Y-up meters. A room file matches that room's scan. The home file uses the aligned shell when a combine has produced one, and otherwise lays rooms out side by side. A card that draws pins on the model should use the room folder.
 

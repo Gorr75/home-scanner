@@ -52,6 +52,12 @@ class PathTests(unittest.TestCase):
         self.assertFalse(accepted_upload_name("plates/day/not-a-uuid.png"))
         self.assertFalse(accepted_upload_name("plates/day/base.png"))
         self.assertFalse(accepted_upload_name("notes.txt"))
+        self.assertTrue(accepted_upload_name(f"notes/{pin}.jpg"))
+        self.assertTrue(accepted_upload_name(f"notes/{pin}.m4a"))
+        self.assertTrue(accepted_upload_name(f"inventory/{pin}-1.jpg"))
+        self.assertTrue(accepted_upload_name(f"inventory/{pin}-receipt.jpg"))
+        self.assertFalse(accepted_upload_name("notes/../layout.json"))
+        self.assertFalse(accepted_upload_name(f"inventory/{pin}.png"))
         self.assertFalse(accepted_upload_name(None))
         with tempfile.TemporaryDirectory() as folder:
             dest = upload_destination(folder, "plates/day/base.jpg")

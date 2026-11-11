@@ -4,6 +4,13 @@ import CoreVideo
 import UIKit
 import RoomScanCore
 
+struct ScanHeldNote: Identifiable, Equatable {
+    var id: UUID
+    var text: String
+    var columns: [Double]
+    var jpeg: Data?
+}
+
 struct ScanHeldFrame: Identifiable {
     var id: UUID
     var jpeg: Data

@@ -2,6 +2,7 @@ import ARKit
 import Foundation
 import RoomPlan
 import SwiftUI
+import UIKit
 import RoomScanCore
 
 struct ScanRoomView: View {
@@ -82,6 +83,8 @@ struct ScanRoomView: View {
                     .buttonStyle(.bordered)
                     Spacer()
                     if !session.phaseIsProcessing {
+                        Button("Add note") { session.captureNoteDraft() }
+                            .buttonStyle(.bordered)
                         Button("Capture frame") { session.captureFrame(manual: true) }
                             .buttonStyle(.bordered)
                         Button("Done") { session.finish() }
@@ -103,6 +106,16 @@ struct ScanRoomView: View {
                         .foregroundStyle(.white)
                         .padding(.bottom, 8)
                 }
+                if !session.notes.isEmpty && !session.phaseIsProcessing {
+                    Text("\(session.notes.count) note\(session.notes.count == 1 ? "" : "s") will be placed when you save.")
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .padding(.bottom, 6)
+                }
+            }
+            if let draft = session.draftNote {
+                scanNoteCard(draft)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
             if case .failed(let message) = session.phase {
                 failure(message)
@@ -146,9 +159,7 @@ struct ScanRoomView: View {
                     } header: {
                         Text("Name this room")
                     } footer: {
-                        Text(session.frames.isEmpty
-                        ? "The model stays on this iPhone, with the floor plan and a USDZ file."
-                        : "\(session.frames.count) camera frames will be matched to walls when you save.")
+                        Text(saveFootnote)
                     }
                     if saving {
                         Section {
@@ -190,6 +201,50 @@ struct ScanRoomView: View {
         }
     }
 
+    private var saveFootnote: String {
+        var parts: [String] = []
+        if session.frames.isEmpty {
+            parts.append("The model stays on this iPhone, with the floor plan and a USDZ file.")
+        } else {
+            parts.append("\(session.frames.count) camera frames will be matched to walls when you save.")
+        }
+        if !session.notes.isEmpty {
+            parts.append("\(session.notes.count) note\(session.notes.count == 1 ? "" : "s") will be pinned at the camera position.")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func scanNoteCard(_ draft: ScanHeldNote) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Note at this spot")
+                .font(.headline)
+            if let jpeg = draft.jpeg, let image = UIImage(data: jpeg) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 160)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            TextField("What is here?", text: Binding(
+                get: { session.draftNote?.text ?? "" },
+                set: { session.updateDraftText($0) }
+            ), axis: .vertical)
+            .lineLimit(2...4)
+            .textFieldStyle(.roundedBorder)
+            HStack {
+                Button("Cancel") { session.discardDraftNote() }
+                    .buttonStyle(.bordered)
+                Spacer()
+                Button("Save note") { session.commitDraftNote() }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(16)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 24)
+    }
+
     private var saveAlert: Binding<Bool> {
         Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })
     }
@@ -214,13 +269,17 @@ struct ScanRoomView: View {
                     saving = false
                     return
                 }
-                _ = try store.addCapturedRoom(
+                let before = Set(store.home(id: homeID)?.rooms.map(\.id) ?? [])
+                let savedHome = try store.addCapturedRoom(
                     homeId: homeID,
                     name: name,
                     floorPlan: plan,
                     capturedJSON: json,
                     usdz: usdz
                 )
+                if let room = savedHome.rooms.first(where: { !before.contains($0.id) }) {
+                    try store.installScanNotes(session.notePayloads, plan: plan, homeId: homeID, roomId: room.id)
+                }
                 try store.installScanFrames(
                     session.frames.map { (id: $0.id, jpeg: $0.jpeg, pose: $0.pose) },
                     plan: plan,
@@ -293,6 +352,7 @@ struct ScanRoomView: View {
                 plan: pending.plan,
                 homeId: homeID
             )
+            try store.installScanNotes(session.notePayloads, plan: pending.plan, homeId: homeID, roomId: replacingRoomID)
             pendingReplace = nil
             onSaved()
             dismiss()
@@ -339,8 +399,14 @@ final class ScanSessionController: NSObject, ObservableObject, RoomCaptureViewDe
     @Published private(set) var phase: Phase = .scanning
     @Published private(set) var instruction = "Walk slowly and point the camera along the walls."
     @Published private(set) var frames: [ScanHeldFrame] = []
+    @Published private(set) var notes: [ScanHeldNote] = []
+    @Published var draftNote: ScanHeldNote?
     @Published var autoTexture = true
     @Published var captureNote: String?
+
+    var notePayloads: [(id: UUID, text: String, columns: [Double], jpeg: Data?)] {
+        notes.map { (id: $0.id, text: $0.text, columns: $0.columns, jpeg: $0.jpeg) }
+    }
 
     private weak var captureView: RoomCaptureView?
     private var cancelled = false
@@ -380,6 +446,42 @@ final class ScanSessionController: NSObject, ObservableObject, RoomCaptureViewDe
     func cancel() {
         cancelled = true
         stopSession()
+    }
+
+    func captureNoteDraft() {
+        guard !didStop, let frame = captureView?.captureSession.arSession.currentFrame else {
+            publish { self.captureNote = "The camera was not ready. Keep the phone moving and try again." }
+            return
+        }
+        let pose = ScanFrameImage.pose(from: frame)
+        let jpeg = ScanFrameImage.jpeg(from: frame.capturedImage)
+        publish {
+            self.draftNote = ScanHeldNote(id: UUID(), text: "", columns: pose.columns, jpeg: jpeg)
+            self.captureNote = nil
+        }
+    }
+
+    func updateDraftText(_ text: String) {
+        guard var draft = draftNote else { return }
+        draft.text = text
+        draftNote = draft
+    }
+
+    func discardDraftNote() {
+        draftNote = nil
+    }
+
+    func commitDraftNote() {
+        guard var draft = draftNote else { return }
+        let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty || draft.jpeg != nil else {
+            captureNote = "Add a few words or keep the snapshot."
+            return
+        }
+        draft.text = trimmed
+        notes.append(draft)
+        draftNote = nil
+        captureNote = "Saved a note. It is placed in the room when you save."
     }
 
     func captureFrame(manual: Bool) {

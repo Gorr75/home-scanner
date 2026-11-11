@@ -46,6 +46,16 @@ struct FloorPlanCanvas: View {
     var onSelectFurniture: (UUID?) -> Void = { _ in }
     var onMoveFurniture: (UUID, Double, Double) -> Void = { _, _, _ in }
     var onCreateFurniture: (Double, Double) -> Void = { _, _ in }
+    var markupPins: [MarkupPin] = []
+    var markupSegments: [MarkupSegment] = []
+    var draftStart: Vec3? = nil
+    var draftEnd: Vec3? = nil
+    var selectedMarkupID: UUID? = nil
+    var measureEnabled: Bool = false
+    var annotateEnabled: Bool = false
+    var onMeasurePoint: (Vec3) -> Void = { _ in }
+    var onAnnotatePoint: (Vec3) -> Void = { _ in }
+    var onSelectMarkup: (UUID) -> Void = { _ in }
 
     @State private var userScale: Double = 1
     @State private var userOffset = CGSize.zero
@@ -158,6 +168,7 @@ struct FloorPlanCanvas: View {
                 if showPins {
                     drawPins(in: context, projector: projector)
                 }
+                drawMarkup(in: context, projector: projector)
                 drawEditor(in: context, projector: projector)
                 if drawn.allSatisfy({ $0.plan.isEmpty }) {
                     context.draw(
@@ -278,6 +289,10 @@ struct FloorPlanCanvas: View {
     }
 
     private func beginDrag(at location: CGPoint, projector: PlanProjector) -> DragMode {
+        if measureEnabled || annotateEnabled {
+            panOrigin = userOffset
+            return .pan
+        }
         if let hit = hitCorner(at: location, projector: projector) {
             return .handle(hit.0, hit.1)
         }
@@ -298,6 +313,26 @@ struct FloorPlanCanvas: View {
     }
 
     private func handleTap(at location: CGPoint, projector: PlanProjector) {
+        if measureEnabled || annotateEnabled {
+            if annotateEnabled, let note = hitMarkup(at: location, projector: projector) {
+                onSelectMarkup(note)
+                return
+            }
+            let world = projector.world(screenX: location.x, screenY: location.y)
+            let point = Vec3(x: world.x, y: 0, z: world.z)
+            if measureEnabled {
+                onMeasurePoint(point)
+            } else {
+                onAnnotatePoint(point)
+            }
+            return
+        }
+        if let note = hitMarkup(at: location, projector: projector) {
+            onSelectMarkup(note)
+            onSelectPin(nil)
+            onSelectFurniture(nil)
+            return
+        }
         if let hit = hitOpening(at: location, projector: projector) {
             onSelectRoom(hit.0)
             onSelectOpening(hit.1)
@@ -584,6 +619,66 @@ struct FloorPlanCanvas: View {
             }
         }
         return best?.0
+    }
+
+    private func hitMarkup(at point: CGPoint, projector: PlanProjector) -> UUID? {
+        var best: (UUID, Double)?
+        for pin in markupPins {
+            let screen = projector.screen(x: pin.position.x, z: pin.position.z)
+            let distance = hypot(screen.x - point.x, screen.y - point.y)
+            if distance <= 22, best == nil || distance < best!.1 {
+                best = (pin.id, distance)
+            }
+        }
+        return best?.0
+    }
+
+    private func drawMarkup(in context: GraphicsContext, projector: PlanProjector) {
+        let accent = palette.accent
+        func stroke(_ start: Vec3, _ end: Vec3, title: String) {
+            var path = Path()
+            let a = point(projector.screen(x: start.x, z: start.z))
+            let b = point(projector.screen(x: end.x, z: end.z))
+            path.move(to: a)
+            path.addLine(to: b)
+            context.stroke(path, with: .color(accent), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 10)
+            context.draw(
+                Text(title)
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(palette.ink),
+                at: mid
+            )
+        }
+        for segment in markupSegments {
+            stroke(segment.start, segment.end, segment.title)
+        }
+        if let draftStart {
+            let screen = point(projector.screen(x: draftStart.x, z: draftStart.z))
+            let rect = CGRect(x: screen.x - 5, y: screen.y - 5, width: 10, height: 10)
+            context.fill(Path(ellipseIn: rect), with: .color(accent))
+            if let draftEnd {
+                let title = MeasureSnap.label(from: draftStart, to: draftEnd)
+                stroke(draftStart, draftEnd, title)
+            }
+        }
+        for pin in markupPins {
+            let screen = point(projector.screen(x: pin.position.x, z: pin.position.z))
+            let selected = pin.id == selectedMarkupID
+            let radius: CGFloat = selected ? 8 : 6
+            let rect = CGRect(x: screen.x - radius, y: screen.y - radius, width: radius * 2, height: radius * 2)
+            let color: Color = pin.kind == .inventory ? Theme.warn : accent
+            context.fill(Path(ellipseIn: rect), with: .color(color))
+            context.stroke(Path(ellipseIn: rect), with: .color(palette.ink), lineWidth: selected ? 2 : 1)
+            if selected {
+                context.draw(
+                    Text(pin.title)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(palette.ink),
+                    at: CGPoint(x: screen.x, y: screen.y - radius - 8)
+                )
+            }
+        }
     }
 
     private func displayed(_ pin: DevicePin) -> Vec3 {

@@ -509,10 +509,14 @@ public enum PlanEditor {
     ) -> (kept: Room, created: Room, plan: PlanSplit)? {
         guard let plan = split(room.floorPlan, makeID: makeID) else { return nil }
         let pieces = reassignedFurniture(room.placedFurniture, split: plan)
+        let notes = reassignedAnnotations(room.roomAnnotations, split: plan)
+        let items = reassignedInventory(room.inventoryItems, split: plan)
         var kept = room
         kept.floorPlan = plan.kept
         kept.placedFurniture = pieces.kept
-        let created = Room(
+        kept.roomAnnotations = notes.kept
+        kept.inventoryItems = items.kept
+        var created = Room(
             id: newID,
             name: name,
             createdAt: createdAt,
@@ -521,6 +525,8 @@ public enum PlanEditor {
             flooring: room.flooring,
             furniture: pieces.created.isEmpty ? nil : pieces.created
         )
+        created.roomAnnotations = notes.created
+        created.inventoryItems = items.created
         return (kept, created, plan)
     }
 
@@ -556,6 +562,56 @@ public enum PlanEditor {
                     copy.replacesObjectId = moved
                 } else if onCreated || split.movedIDs[replaced] != nil {
                     copy.replacesObjectId = nil
+                }
+            }
+            if onCreated {
+                created.append(copy)
+            } else {
+                kept.append(copy)
+            }
+        }
+        return (kept, created)
+    }
+
+    /// A note stays on the half that contains its pin. A measurement moves with that pin.
+    public static func reassignedAnnotations(
+        _ notes: [RoomAnnotation],
+        split: PlanSplit
+    ) -> (kept: [RoomAnnotation], created: [RoomAnnotation]) {
+        var kept: [RoomAnnotation] = []
+        var created: [RoomAnnotation] = []
+        for note in notes {
+            if split.containsCreated(x: note.position.x, z: note.position.z) {
+                created.append(note)
+            } else {
+                kept.append(note)
+            }
+        }
+        return (kept, created)
+    }
+
+    /// An item with a position follows that spot. An item linked only to a scan box follows the box.
+    public static func reassignedInventory(
+        _ items: [InventoryItem],
+        split: PlanSplit
+    ) -> (kept: [InventoryItem], created: [InventoryItem]) {
+        var kept: [InventoryItem] = []
+        var created: [InventoryItem] = []
+        for item in items {
+            var copy = item
+            let onCreated: Bool
+            if let position = item.position {
+                onCreated = split.containsCreated(x: position.x, z: position.z)
+            } else if let objectId = item.objectId, split.movedIDs[objectId] != nil {
+                onCreated = true
+            } else {
+                onCreated = false
+            }
+            if let objectId = copy.objectId {
+                if onCreated, let moved = split.movedIDs[objectId] {
+                    copy.objectId = moved
+                } else if onCreated || split.movedIDs[objectId] != nil {
+                    copy.objectId = nil
                 }
             }
             if onCreated {
