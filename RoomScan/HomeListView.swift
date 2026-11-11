@@ -3,6 +3,7 @@ import RoomScanCore
 
 struct HomeListView: View {
     @Environment(HomeStore.self) private var store
+    @Environment(ICloudSyncController.self) private var sync
     var showsLinks: Bool
     @Binding var selection: UUID?
     var onOpen: (UUID) -> Void
@@ -32,9 +33,9 @@ struct HomeListView: View {
             Section {
                 if store.homes.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("No homes yet")
+                        Text(emptyTitle)
                             .font(.system(.title3, design: .serif))
-                        Text("Scan a room, or open the sample apartment to try the model and floor plan.")
+                        Text(emptyMessage)
                             .font(.subheadline)
                             .foregroundStyle(Theme.secondary)
                     }
@@ -52,7 +53,7 @@ struct HomeListView: View {
             } header: {
                 Text("Homes")
             } footer: {
-                Text("Scans stay in Files on this iPhone. Connect Home Assistant in Settings to link entities and, when you choose, send a floor plan.")
+                Text("Homes are stored on this device. With iCloud sync on, the same library opens on your iPad. Connect Home Assistant in Settings to link entities and, when you choose, send a floor plan.")
             }
             if !store.warnings.isEmpty {
                 Section("Couldn't read") {
@@ -122,6 +123,26 @@ struct HomeListView: View {
             Text(errorMessage ?? "")
         }
         .paperChrome()
+    }
+
+    private var emptyTitle: String {
+        if sync.syncEnabled && sync.phase == .uploading {
+            return "Downloading homes"
+        }
+        return "No homes yet"
+    }
+
+    private var emptyMessage: String {
+        if sync.syncEnabled && !sync.accountAvailable {
+            return "Sign in to iCloud to restore homes from another device. You can still create homes on this one."
+        }
+        if sync.syncEnabled && sync.phase == .uploading {
+            return "iCloud is bringing homes onto this device. You can still scan a room while that finishes."
+        }
+        if sync.syncEnabled && sync.phase == .offline {
+            return "Homes already in iCloud show up when the connection returns. You can still scan a room on this device."
+        }
+        return "Scan a room, or open the sample apartment to try the model and floor plan."
     }
 
     private var listSelection: Binding<UUID?>? {

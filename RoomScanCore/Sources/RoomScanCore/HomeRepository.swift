@@ -22,35 +22,32 @@ extension HomeRepositoryError: LocalizedError {
     }
 }
 
-/// On-device homes. Each home is a folder of `home.json` plus USDZ and CapturedRoom sidecars.
+/// Homes stored on this device. Each home is a folder of `home.json` plus USDZ and CapturedRoom sidecars.
+/// The root is Documents/Homes, or the iCloud Drive container when sync is on.
 public final class HomeRepository {
     public let root: URL
     public private(set) var homes: [Home] = []
     public private(set) var warnings: [String] = []
 
-    private let fileManager: FileManager
+    private let disk: HomeDisk
 
-    public init(root: URL, fileManager: FileManager = .default) throws {
+    public init(root: URL, disk: HomeDisk = LocalHomeDisk()) throws {
         self.root = root
-        self.fileManager = fileManager
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        self.disk = disk
+        try disk.createDirectory(at: root)
         try reload()
     }
 
     public func reload() throws {
-        let entries = try fileManager.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )
+        let entries = try disk.contentsOfDirectory(at: root)
         var loaded: [Home] = []
         var notes: [String] = []
         for entry in entries {
-            guard isDirectory(entry) else { continue }
+            guard disk.isDirectory(entry) else { continue }
             let manifest = entry.appendingPathComponent("home.json")
-            guard fileManager.fileExists(atPath: manifest.path) else { continue }
+            guard disk.fileExists(at: manifest) else { continue }
             do {
-                let data = try Data(contentsOf: manifest)
+                let data = try disk.read(from: manifest)
                 let document = try HomeLayoutDocument.decode(data)
                 loaded.append(document.home)
             } catch {
@@ -83,9 +80,9 @@ public final class HomeRepository {
             stored.updatedAt = now
         }
         let folder = folderURL(for: stored.id)
-        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try disk.createDirectory(at: folder)
         let data = try HomeLayoutDocument(home: stored).encode()
-        try data.write(to: folder.appendingPathComponent("home.json"), options: .atomic)
+        try disk.write(data, to: folder.appendingPathComponent("home.json"))
         if let index = homes.firstIndex(where: { $0.id == stored.id }) {
             homes[index] = stored
         } else {
@@ -97,8 +94,8 @@ public final class HomeRepository {
 
     public func deleteHome(id: UUID) throws {
         let folder = folderURL(for: id)
-        if fileManager.fileExists(atPath: folder.path) {
-            try fileManager.removeItem(at: folder)
+        if disk.fileExists(at: folder) {
+            try disk.removeItem(at: folder)
         }
         homes.removeAll { $0.id == id }
     }
@@ -108,6 +105,10 @@ public final class HomeRepository {
             throw HomeRepositoryError.unsafePath(relative)
         }
         return url
+    }
+
+    public func contents(homeId: UUID, relative: String) throws -> Data {
+        try disk.read(from: try fileURL(homeId: homeId, relative: relative))
     }
 
     @discardableResult
@@ -255,11 +256,11 @@ public final class HomeRepository {
     public func textures(homeId: UUID) -> TextureLibrary {
         let relative = "textures.json"
         guard let url = try? fileURL(homeId: homeId, relative: relative),
-              fileManager.fileExists(atPath: url.path) else {
+              disk.fileExists(at: url) else {
             return .empty
         }
         do {
-            let data = try Data(contentsOf: url)
+            let data = try disk.read(from: url)
             return try TextureLibrary.decode(data)
         } catch {
             return .empty
@@ -285,10 +286,10 @@ public final class HomeRepository {
 
     public func textureData(homeId: UUID, relative: String) -> Data? {
         guard let url = try? fileURL(homeId: homeId, relative: relative),
-              fileManager.fileExists(atPath: url.path) else {
+              disk.fileExists(at: url) else {
             return nil
         }
-        return try? Data(contentsOf: url)
+        return try? disk.read(from: url)
     }
 
     public func capturedPayloads(in home: Home) throws -> [(room: Room, data: Data)] {
@@ -296,10 +297,10 @@ public final class HomeRepository {
         for room in home.rooms {
             guard let relative = room.assets.capturedRoom else { continue }
             let url = try fileURL(homeId: home.id, relative: relative)
-            guard fileManager.fileExists(atPath: url.path) else {
+            guard disk.fileExists(at: url) else {
                 throw HomeRepositoryError.unreadable(room.name)
             }
-            payloads.append((room, try Data(contentsOf: url)))
+            payloads.append((room, try disk.read(from: url)))
         }
         return payloads
     }
@@ -310,7 +311,7 @@ public final class HomeRepository {
         if let existing = homes.first(where: { $0.id == SampleApartment.homeID }) {
             if let usdz, let relative = existing.structure?.usdz {
                 let url = try fileURL(homeId: existing.id, relative: relative)
-                if !fileManager.fileExists(atPath: url.path) {
+                if !disk.fileExists(at: url) {
                     try write(usdz, homeId: existing.id, relative: relative)
                 }
             }
@@ -332,17 +333,9 @@ public final class HomeRepository {
         var name = home.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if name.isEmpty { name = "Home" }
         name = name.replacingOccurrences(of: "/", with: "-")
-        let url = fileManager.temporaryDirectory.appendingPathComponent("\(name).roomscan.json")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).roomscan.json")
         try data.write(to: url, options: .atomic)
         return url
-    }
-
-    private func isDirectory(_ url: URL) -> Bool {
-        if let value = try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory {
-            return value
-        }
-        var isDirectory = ObjCBool(false)
-        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     private func folderURL(for homeId: UUID) -> URL {
@@ -351,11 +344,7 @@ public final class HomeRepository {
 
     private func write(_ data: Data, homeId: UUID, relative: String) throws {
         let url = try fileURL(homeId: homeId, relative: relative)
-        try fileManager.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try data.write(to: url, options: .atomic)
+        try disk.write(data, to: url)
     }
 
     private func surfaceIDs(in plan: FloorPlan) -> Set<UUID> {
@@ -394,8 +383,8 @@ public final class HomeRepository {
 
     private func removeFile(homeId: UUID, relative: String) throws {
         let url = try fileURL(homeId: homeId, relative: relative)
-        if fileManager.fileExists(atPath: url.path) {
-            try fileManager.removeItem(at: url)
+        if disk.fileExists(at: url) {
+            try disk.removeItem(at: url)
         }
     }
 }
