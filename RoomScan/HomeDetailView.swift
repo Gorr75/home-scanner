@@ -8,7 +8,9 @@ struct HomeDetailView: View {
 
     let homeID: UUID
 
-    @State private var scanning = false
+    @State private var scanning: ScanLaunch?
+    @State private var pendingLaunch: ScanLaunch?
+    @State private var storageWarning: String?
     @State private var combining = false
     @State private var sending = false
     @State private var renaming = false
@@ -145,8 +147,17 @@ struct HomeDetailView: View {
         .navigationTitle(home?.name ?? "Home")
         .navigationBarTitleDisplayMode(.large)
         .toolbar { toolbar }
-        .fullScreenCover(isPresented: $scanning) {
-            ScanRoomView(homeID: homeID) { scanning = false }
+        .fullScreenCover(item: $scanning) { launch in
+            ScanRoomView(launch: launch) { scanning = nil }
+        }
+        .alert("Low storage", isPresented: storageAlertPresented) {
+            Button("Scan anyway") {
+                scanning = pendingLaunch
+                pendingLaunch = nil
+            }
+            Button("Cancel", role: .cancel) { pendingLaunch = nil }
+        } message: {
+            Text(storageWarning ?? ScanGuardAdvice.storageMessage)
         }
         .task(id: home?.pins.map { "\($0.id.uuidString)|\($0.entityId ?? "")" }.joined(separator: ",") ?? "") {
             await pinBoard.refresh(pins: home?.pins ?? [])
@@ -297,10 +308,14 @@ struct HomeDetailView: View {
     @ViewBuilder
     private func roomSections(_ home: Home) -> some View {
         if home.rooms.isEmpty {
-            Section("Rooms") {
+            Section {
                 Text("Scan the kitchen, then the rooms that open off it.")
                     .foregroundStyle(Theme.secondary)
-                scanButton
+                scanButtons(floor: nil)
+            } header: {
+                Text("Rooms")
+            } footer: {
+                Text("Scan a room locks onto the saved map of this home when one exists, so the new room lands in the same place. Whole floor keeps one camera running through each doorway.")
             }
         } else {
             let groups = FloorGrouping.groups(in: home.rooms)
@@ -320,8 +335,10 @@ struct HomeDetailView: View {
                             Button("Delete", role: .destructive) { pendingRoom = room }
                         }
                     }
+                    scanButtons(floor: group.level)
+                } footer: {
                     if group.id == groups.last?.id {
-                        scanButton
+                        Text("Scan a room locks onto the saved map of this home when one exists, so the new room lands in the same place. Whole floor keeps one camera running through each doorway.")
                     }
                 }
             }
@@ -329,13 +346,38 @@ struct HomeDetailView: View {
     }
 
     @ViewBuilder
-    private var scanButton: some View {
+    private func scanButtons(floor: Int?) -> some View {
         if LiDARSupport.canScan {
             Button {
-                scanning = true
+                requestScan(.room, floor: floor)
             } label: {
                 Label("Scan a room", systemImage: "viewfinder")
             }
+            Button {
+                requestScan(.wholeFloor, floor: floor)
+            } label: {
+                Label("Scan the whole floor", systemImage: "square.split.2x2")
+            }
+        }
+    }
+
+    private var storageAlertPresented: Binding<Bool> {
+        Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })
+    }
+
+    private func requestScan(_ kind: ScanLaunch.Kind, floor: Int?) {
+        let launch = ScanLaunch(homeID: homeID, kind: kind, floor: floor)
+        let advice = ScanGuardAdvice.evaluate(ScanConditions(
+            thermal: .nominal,
+            batteryFraction: nil,
+            isCharging: true,
+            freeBytes: ScanDevice.freeBytes()
+        ))
+        if let warning = advice.storageWarning {
+            storageWarning = warning
+            pendingLaunch = launch
+        } else {
+            scanning = launch
         }
     }
 

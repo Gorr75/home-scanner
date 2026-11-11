@@ -1,37 +1,56 @@
-import ARKit
-import Foundation
-import RoomPlan
 import SwiftUI
 import RoomScanCore
 
 struct ScanRoomView: View {
     @Environment(HomeStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var session = ScanSessionController()
 
-    let homeID: UUID
-    var replacingRoomID: UUID? = nil
+    let launch: ScanLaunch
     var onSaved: () -> Void
 
-    @State private var roomName = ""
+    @State private var names: [UUID: String] = [:]
     @State private var saving = false
     @State private var saveError: String?
     @State private var pendingReplace: PendingReplace?
+    @State private var nudge: NudgeRequest?
 
     private var roomCount: Int {
-        store.home(id: homeID)?.rooms.count ?? 0
+        store.home(id: launch.homeID)?.rooms.count ?? 0
     }
 
     var body: some View {
         Group {
-            if case .finished(let room) = session.phase {
-                nameForm(for: room)
+            if session.phase == .finished {
+                nameForm
             } else {
                 captureScreen
             }
         }
         .tint(Theme.accent)
         .interactiveDismissDisabled(saving || session.phaseIsProcessing)
+        .task {
+            session.start(
+                launch: launch,
+                checkpoints: store.checkpoints,
+                homeMap: store.worldMapData(homeId: launch.homeID)
+            )
+            store.activeCheckpointID = session.checkpointID
+        }
+        .onDisappear {
+            if store.activeCheckpointID == session.checkpointID {
+                store.activeCheckpointID = nil
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            session.sceneMovedToBackground(phase != .active)
+        }
+        .task(id: session.phase) {
+            guard session.phase == .relocalizing else { return }
+            try? await Task.sleep(nanoseconds: 45_000_000_000)
+            session.noteRelocalizationIsSlow()
+        }
         .task(id: session.autoTexture) {
             guard session.autoTexture else { return }
             while !Task.isCancelled {
@@ -44,58 +63,40 @@ struct ScanRoomView: View {
                 session.captureFrame(manual: false)
             }
         }
+        .sheet(item: $nudge, onDismiss: finishAfterNudge) { request in
+            RoomNudgeSheet(homeID: request.homeID, roomIDs: request.roomIDs, sharesSpace: request.sharesSpace)
+        }
     }
 
     private var captureScreen: some View {
         ZStack {
-            RoomCaptureRepresentable(controller: session)
-                .ignoresSafeArea()
+            if session.camera == .relocalizing || session.holdPreview {
+                RelocalizationRepresentable(controller: session)
+                    .opacity(session.camera == .relocalizing ? 1 : 0)
+                    .allowsHitTesting(session.camera == .relocalizing)
+            }
+            if session.camera == .capturing {
+                RoomCaptureRepresentable(controller: session)
+                    .id(session.generation)
+            }
+            if session.camera == .none && session.phase == .preparing {
+                ProgressView("Starting the scan")
+                    .tint(.white)
+            }
             VStack(spacing: 12) {
-                Text(session.instruction)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Theme.ink)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.top, 12)
+                statusBanners
                 Spacer()
                 if session.phaseIsProcessing {
-                    VStack(spacing: 10) {
-                        ProgressView()
-                        Text("Building the room model")
-                            .font(.headline)
-                        Text("RoomPlan is turning the scan into walls and openings.")
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(20)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .padding(.horizontal, 24)
+                    processingCard
                 }
-                HStack {
-                    Button(session.phaseIsProcessing ? "Discard" : "Cancel", role: .cancel) {
-                        session.cancel()
-                        dismiss()
-                    }
-                    .buttonStyle(.bordered)
-                    Spacer()
-                    if !session.phaseIsProcessing {
-                        Button("Capture frame") { session.captureFrame(manual: true) }
-                            .buttonStyle(.bordered)
-                        Button("Done") { session.finish() }
-                            .buttonStyle(.borderedProminent)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
-                if !session.phaseIsProcessing {
+                controls
+                if session.phase == .scanning {
                     Toggle("Save wall photos while scanning", isOn: $session.autoTexture)
                         .font(.footnote)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 20)
                         .padding(.bottom, 8)
-                        .tint(Theme.accent)
+                        .tint(Theme.accentOnCharcoal)
                 }
                 if let note = session.captureNote {
                     Text(note)
@@ -111,6 +112,87 @@ struct ScanRoomView: View {
         .background(Color.black)
     }
 
+    private var statusBanners: some View {
+        VStack(spacing: 8) {
+            if session.phase == .relocalizing {
+                VStack(spacing: 6) {
+                    Text("Find the room")
+                        .font(.headline)
+                    Text(session.trackingGuidance)
+                        .font(.subheadline)
+                        .multilineTextAlignment(.center)
+                }
+                .foregroundStyle(Theme.ink)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .padding(.horizontal, 20)
+            } else if session.phase == .scanning {
+                Text(session.mode == .wholeFloor ? "\(session.instruction) Room \(session.finishedSectionCount + 1)." : session.instruction)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.ink)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+            }
+            if let guardMessage = session.guardMessage {
+                Text(guardMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Theme.warn.opacity(0.92), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .padding(.horizontal, 20)
+            }
+        }
+        .padding(.top, 12)
+    }
+
+    private var processingCard: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+            Text(session.phase == .betweenRooms ? "Saving this room" : "Building the room model")
+                .font(.headline)
+            Text(session.phase == .betweenRooms
+                 ? "The camera stays running. The next room starts in the same place."
+                 : "RoomPlan is turning the scan into walls and openings.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(20)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(.horizontal, 24)
+    }
+
+    private var controls: some View {
+        HStack {
+            Button(session.preservesCheckpointOnCancel ? "Close" : (session.phaseIsProcessing ? "Discard" : "Cancel"), role: .cancel) {
+                session.cancel(discard: !session.preservesCheckpointOnCancel)
+                dismiss()
+            }
+            .buttonStyle(.bordered)
+            Spacer()
+            if session.phase == .relocalizing {
+                Button("Scan and align later") { session.skipRelocalization() }
+                    .buttonStyle(.borderedProminent)
+            } else if session.phase == .scanning {
+                Button("Capture frame") { session.captureFrame(manual: true) }
+                    .buttonStyle(.bordered)
+                if session.showsNextRoom {
+                    Button("Next room") { session.nextRoom() }
+                        .buttonStyle(.bordered)
+                }
+                Button("Done") { session.finish() }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
+    }
+
     private func failure(_ message: String) -> some View {
         VStack(spacing: 14) {
             Text("The scan didn't finish")
@@ -119,7 +201,8 @@ struct ScanRoomView: View {
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
             Button("Close") {
-                session.cancel()
+                let keep = session.savedSections.contains { !$0.capturedRoom.isEmpty }
+                session.cancel(discard: !keep)
                 dismiss()
             }
             .buttonStyle(.borderedProminent)
@@ -129,26 +212,23 @@ struct ScanRoomView: View {
         .padding(24)
     }
 
-    private func nameForm(for room: CapturedRoom) -> some View {
+    private var nameForm: some View {
         NavigationStack {
             PaperScreen {
                 Form {
                     Section {
-                        TextField("Room name", text: $roomName)
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack {
-                                ForEach(Self.suggestions, id: \.self) { suggestion in
-                                    Button(suggestion) { roomName = suggestion }
-                                        .buttonStyle(.bordered)
-                                }
+                        if session.savedSections.count <= 1 {
+                            TextField("Room name", text: nameBinding(session.savedSections.first?.id))
+                            suggestionRow
+                        } else {
+                            ForEach(session.savedSections) { section in
+                                TextField(section.name, text: nameBinding(section.id))
                             }
                         }
                     } header: {
-                        Text("Name this room")
+                        Text(session.savedSections.count > 1 ? "Name these rooms" : "Name this room")
                     } footer: {
-                        Text(session.frames.isEmpty
-                        ? "The model stays on this iPhone, with the floor plan and a USDZ file."
-                        : "\(session.frames.count) camera frames will be matched to walls when you save.")
+                        Text(footer)
                     }
                     if saving {
                         Section {
@@ -166,12 +246,15 @@ struct ScanRoomView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Discard") { dismiss() }
-                        .disabled(saving)
+                    Button("Discard") {
+                        session.cancel(discard: true)
+                        dismiss()
+                    }
+                    .disabled(saving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save(room) }
-                        .disabled(saving || roomName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Save") { save() }
+                        .disabled(saving || !namesAreFilled)
                 }
             }
             .alert("Couldn't save the room", isPresented: saveAlert) {
@@ -182,10 +265,57 @@ struct ScanRoomView: View {
             .sheet(item: $pendingReplace) { pending in
                 replaceSheet(pending)
             }
+            .onAppear {
+                if names.isEmpty {
+                    for (index, section) in session.savedSections.enumerated() {
+                        names[section.id] = section.name == "Room \(index + 1)" && session.savedSections.count == 1
+                            ? "Room \(roomCount + 1)"
+                            : section.name
+                    }
+                }
+            }
         }
-        .onAppear {
-            if roomName.isEmpty {
-                roomName = "Room \(roomCount + 1)"
+    }
+
+    private var footer: String {
+        if session.relocalized {
+            return "This scan locked onto the saved map, so the new room keeps that place."
+        }
+        if session.relocalizationFailed {
+            return "The saved map did not lock. You can line the room up with the doorway after saving."
+        }
+        if session.frames.isEmpty {
+            return "The model stays on this iPhone, with the floor plan and a USDZ file."
+        }
+        return "\(session.frames.count) camera frames will be matched to walls when you save."
+    }
+
+    private var namesAreFilled: Bool {
+        let sections = session.savedSections
+        guard !sections.isEmpty else { return false }
+        return sections.allSatisfy { name in
+            !(names[name.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private func nameBinding(_ id: UUID?) -> Binding<String> {
+        Binding(
+            get: { id.flatMap { names[$0] } ?? "" },
+            set: { if let id { names[id] = $0 } }
+        )
+    }
+
+    private var suggestionRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack {
+                ForEach(Self.suggestions, id: \.self) { suggestion in
+                    Button(suggestion) {
+                        if let id = session.savedSections.first?.id {
+                            names[id] = suggestion
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
         }
     }
@@ -194,40 +324,47 @@ struct ScanRoomView: View {
         Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })
     }
 
-    private func save(_ room: CapturedRoom) {
+    private func save() {
         saving = true
-        let name = roomName
+        session.applyNames(names)
         Task {
             do {
-                let plan = FloorPlanExtractor.floorPlan(from: room)
-                let json = try ScanArchive.encodeRoom(room)
-                let usdz = try ScanArchive.usdzData(for: room)
-                if let replacingRoomID,
-                   let previous = store.home(id: homeID)?.room(id: replacingRoomID)?.floorPlan {
-                    pendingReplace = PendingReplace(
-                        plan: plan,
-                        json: json,
-                        usdz: usdz,
-                        diff: ScanDiff.compare(previous: previous, current: plan),
-                        frames: session.frames
-                    )
-                    saving = false
-                    return
+                let pieces = try session.makePieces()
+                if let replacingRoomID = launch.replacingRoomID, let piece = pieces.last {
+                    let previous = store.home(id: launch.homeID)?.room(id: replacingRoomID)?.floorPlan
+                    if let previous {
+                        pendingReplace = PendingReplace(
+                            plan: piece.plan,
+                            json: piece.json,
+                            usdz: piece.usdz,
+                            diff: ScanDiff.compare(previous: previous, current: piece.plan),
+                            frames: session.frames
+                        )
+                        saving = false
+                        return
+                    }
                 }
-                _ = try store.addCapturedRoom(
-                    homeId: homeID,
-                    name: name,
-                    floorPlan: plan,
-                    capturedJSON: json,
-                    usdz: usdz
+                let map = await session.latestWorldMap()
+                let result = try await ScanCommit.save(
+                    pieces: pieces,
+                    homeID: launch.homeID,
+                    replacingRoomID: launch.replacingRoomID,
+                    worldMap: map,
+                    frames: session.frames,
+                    store: store
                 )
-                try store.installScanFrames(
-                    session.frames.map { (id: $0.id, jpeg: $0.jpeg, pose: $0.pose) },
-                    plan: plan,
-                    homeId: homeID
-                )
-                onSaved()
-                dismiss()
+                session.markSaved()
+                saving = false
+                if result.needsNudge {
+                    nudge = NudgeRequest(
+                        homeID: launch.homeID,
+                        roomIDs: result.roomIDs,
+                        sharesSpace: result.sharesSpace
+                    )
+                } else {
+                    onSaved()
+                    dismiss()
+                }
             } catch {
                 saveError = error.localizedDescription
                 saving = false
@@ -235,12 +372,24 @@ struct ScanRoomView: View {
         }
     }
 
+    private func finishAfterNudge() {
+        guard nudge == nil else { return }
+        onSaved()
+        dismiss()
+    }
+
     private func replaceSheet(_ pending: PendingReplace) -> some View {
         let counts = ScanDiff.counts(pending.diff)
         return NavigationStack {
             VStack(spacing: 0) {
                 FloorPlanCanvas(
-                    layers: [PlanLayer(id: replacingRoomID ?? UUID(), name: roomName, plan: pending.plan, offset: .zero, tintIndex: 0)],
+                    layers: [PlanLayer(
+                        id: launch.replacingRoomID ?? UUID(),
+                        name: names[session.savedSections.last?.id ?? UUID()] ?? "Room",
+                        plan: pending.plan,
+                        offset: .zero,
+                        tintIndex: 0
+                    )],
                     pins: [],
                     showPins: false,
                     selectedPinID: nil,
@@ -278,27 +427,28 @@ struct ScanRoomView: View {
     }
 
     private func commitReplace(_ pending: PendingReplace) {
-        guard let replacingRoomID else { return }
+        guard launch.replacingRoomID != nil else { return }
         saving = true
-        do {
-            _ = try store.replaceCapturedRoom(
-                homeId: homeID,
-                roomId: replacingRoomID,
-                floorPlan: pending.plan,
-                capturedJSON: pending.json,
-                usdz: pending.usdz
-            )
-            try store.installScanFrames(
-                pending.frames.map { (id: $0.id, jpeg: $0.jpeg, pose: $0.pose) },
-                plan: pending.plan,
-                homeId: homeID
-            )
-            pendingReplace = nil
-            onSaved()
-            dismiss()
-        } catch {
-            saveError = error.localizedDescription
-            saving = false
+        Task {
+            do {
+                let map = await session.latestWorldMap()
+                let pieces = try session.makePieces()
+                _ = try await ScanCommit.save(
+                    pieces: pieces,
+                    homeID: launch.homeID,
+                    replacingRoomID: launch.replacingRoomID,
+                    worldMap: map,
+                    frames: pending.frames,
+                    store: store
+                )
+                session.markSaved()
+                pendingReplace = nil
+                onSaved()
+                dismiss()
+            } catch {
+                saveError = error.localizedDescription
+                saving = false
+            }
         }
     }
 
@@ -311,166 +461,14 @@ private struct PendingReplace: Identifiable {
     let id = UUID()
     var plan: FloorPlan
     var json: Data
-    var usdz: Data
+    var usdz: Data?
     var diff: [ObjectChange]
     var frames: [ScanHeldFrame]
 }
 
-private struct RoomCaptureRepresentable: UIViewRepresentable {
-    let controller: ScanSessionController
-
-    func makeUIView(context: Context) -> RoomCaptureView {
-        let view = RoomCaptureView(frame: .zero)
-        controller.attach(view)
-        return view
-    }
-
-    func updateUIView(_ uiView: RoomCaptureView, context: Context) {}
-}
-
-final class ScanSessionController: NSObject, ObservableObject, RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
-    enum Phase {
-        case scanning
-        case processing
-        case finished(CapturedRoom)
-        case failed(String)
-    }
-
-    @Published private(set) var phase: Phase = .scanning
-    @Published private(set) var instruction = "Walk slowly and point the camera along the walls."
-    @Published private(set) var frames: [ScanHeldFrame] = []
-    @Published var autoTexture = true
-    @Published var captureNote: String?
-
-    private weak var captureView: RoomCaptureView?
-    private var cancelled = false
-    private var didStop = false
-
-    override init() {
-        super.init()
-    }
-
-    // RoomCaptureViewDelegate and RoomCaptureSessionDelegate inherit NSCoding.
-    // This controller is never archived, so decoding is unsupported.
-    required init?(coder: NSCoder) {
-        fatalError("ScanSessionController does not support NSCoding")
-    }
-
-    func encode(with coder: NSCoder) {}
-
-    var phaseIsProcessing: Bool {
-        if case .processing = phase { return true }
-        return false
-    }
-
-    func attach(_ view: RoomCaptureView) {
-        guard captureView == nil else { return }
-        captureView = view
-        view.delegate = self
-        view.captureSession.delegate = self
-        view.captureSession.run(configuration: RoomCaptureSession.Configuration())
-    }
-
-    func finish() {
-        guard case .scanning = phase else { return }
-        phase = .processing
-        stopSession()
-    }
-
-    func cancel() {
-        cancelled = true
-        stopSession()
-    }
-
-    func captureFrame(manual: Bool) {
-        guard !didStop, let frame = captureView?.captureSession.arSession.currentFrame else {
-            if manual {
-                publish { self.captureNote = "The camera frame was not ready. Keep the phone moving and try again." }
-            }
-            return
-        }
-        guard let jpeg = ScanFrameImage.jpeg(from: frame.capturedImage) else {
-            if manual {
-                publish { self.captureNote = "That frame could not be saved." }
-            }
-            return
-        }
-        let held = ScanHeldFrame(id: UUID(), jpeg: jpeg, pose: ScanFrameImage.pose(from: frame), manual: manual)
-        publish {
-            if manual {
-                self.frames.append(held)
-                self.captureNote = "Saved a frame. It is matched to a wall when you save the room."
-            } else {
-                let automatic = self.frames.filter { !$0.manual }
-                if automatic.count >= 8, let index = self.frames.firstIndex(where: { !$0.manual }) {
-                    self.frames.remove(at: index)
-                }
-                self.frames.append(held)
-            }
-        }
-    }
-
-    func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
-        if let message = error?.localizedDescription {
-            publish { self.phase = .failed(message) }
-            return false
-        }
-        publish { self.phase = .processing }
-        return true
-    }
-
-    func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
-        let message = error?.localizedDescription
-        publish {
-            guard !self.cancelled else { return }
-            if let message {
-                self.phase = .failed(message)
-            } else {
-                self.phase = .finished(processedResult)
-            }
-        }
-    }
-
-    func captureSession(_ session: RoomCaptureSession, didProvide instruction: RoomCaptureSession.Instruction) {
-        let text = Self.text(for: instruction)
-        publish { self.instruction = text }
-    }
-
-    func captureSession(_ session: RoomCaptureSession, didEndWith data: CapturedRoomData, error: Error?) {
-        guard let message = error?.localizedDescription else { return }
-        publish {
-            guard !self.cancelled else { return }
-            if case .finished = self.phase { return }
-            self.phase = .failed(message)
-        }
-    }
-
-    private func stopSession() {
-        guard !didStop else { return }
-        didStop = true
-        captureView?.captureSession.stop()
-    }
-
-    private func publish(_ body: @escaping () -> Void) {
-        DispatchQueue.main.async(execute: body)
-    }
-
-    private static func text(for instruction: RoomCaptureSession.Instruction) -> String {
-        switch instruction {
-        case .moveCloseToWall:
-            return "Move closer to a wall."
-        case .moveAwayFromWall:
-            return "Step back from the wall."
-        case .slowDown:
-            return "Slow down."
-        case .turnOnLight:
-            return "Turn on a light so the walls are easier to see."
-        case .normal:
-            return "Keep going. Trace the edges of the room."
-        case .lowTexture:
-            return "Point at a surface with more detail."
-        @unknown default:
-            return "Keep scanning."
-        }
-    }
+struct NudgeRequest: Identifiable {
+    let id = UUID()
+    var homeID: UUID
+    var roomIDs: [UUID]
+    var sharesSpace: Bool
 }
